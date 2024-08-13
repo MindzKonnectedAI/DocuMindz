@@ -1,0 +1,4 @@
+cookie:
+  expiry_days: 30
+  key: pdfragkey # Must be string
+  name: pdfragcookie
