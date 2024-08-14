@@ -11,7 +11,7 @@ DocuMindz is a PDF Retrieval-Augmented Generation (RAG) application developed us
 
 - **Fast and Accurate**: Leverages Langchain for quick and accurate question answering based on PDF content.
 
-- **Highlighting Feature**: The app highlights the most relevant document in the list, improving the user experience.
+- **Authentication Mechanism**: Implemented authentication system, ensuring that only authorized users can access and utilize the app's features.
   
 
 ## Installation
