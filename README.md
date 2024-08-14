@@ -34,12 +34,11 @@ To run DocuMindz locally, follow these steps:
    ``` bash
    touch .env
 
-5. Get required api keys ( Refer .env.sample file )
+5. Set required api keys ( Refer .env.sample file )
 
 6. Run the Streamlit app 
    ```bash
    streamlit run app.py
-
 
 ## Usage
 
