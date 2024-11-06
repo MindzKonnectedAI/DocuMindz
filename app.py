@@ -30,6 +30,7 @@ from dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
 import json
+import time
 
 def main():
 
@@ -117,6 +118,15 @@ def main():
         st.session_state.chat_history = []
 
     selected_files = []
+
+    # Display a temporary success message
+    def temporary_success_message(message, duration=2):
+        # Show success message
+        success = st.success(message)
+        # Wait for specified duration
+        time.sleep(duration)
+        # Clear the success message
+        success.empty()
 
     # get_session_history function , to be used with RunnableWithMessageHistory class , this is used to pass session history
     def get_session_history(session_id: str) -> BaseChatMessageHistory:
@@ -450,7 +460,7 @@ def main():
                 print(f"An unexpected error occurred: {e}")
                 return [], []
 
-        authenticator.logout('Logout', 'sidebar')
+        
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
         selected_file_path = f"selected/{email}/selected.txt"
@@ -507,6 +517,10 @@ def main():
                 # Process the selected files
                 with st.spinner("Processing files..."):
                     process_selected_files(save_folder, email)
+                    temporary_success_message("Files Processed Successfully")
+
+
+        authenticator.logout('Logout', 'sidebar','logout-key')
 
         # Conversation History
         for message in st.session_state.chat_history:
