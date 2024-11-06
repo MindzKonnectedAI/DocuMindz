@@ -29,7 +29,7 @@ import streamlit_authenticator_mongo as stauth
 from dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
-
+import json
 
 def main():
 
@@ -259,6 +259,22 @@ def main():
             st.session_state["file_uploader_key"] += 1
             # st.sidebar.success(f"File {file.name} uploaded successfully!")
 
+
+    # Function to find answer in question_answer.json
+    def find_answer_from_json(prompt):
+        try:
+            with open('QA/question_answer.json', 'r') as f:
+                qa_data = json.load(f)
+                # Search for the prompt (question) in the JSON file
+                for qa_pair in qa_data:
+                    if qa_pair["question"].lower() == prompt.lower():  # Match case-insensitive
+                        return qa_pair["answer"]
+        except FileNotFoundError:
+            st.error("question_answer.json file not found.")
+        except json.JSONDecodeError:
+            st.error("Error reading the question_answer.json file.")
+        return None  # Return None if no match is found
+
     # generate response 
     def generate_response(prompt: str) :
         try:
@@ -348,6 +364,8 @@ def main():
 
     if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
         menu = ["Login","Register"]
+        # Sidebar Image
+        st.sidebar.image('images/logo.png')
         choice = st.sidebar.selectbox("Menu",menu)
         if choice == "Login":
             authenticator.login('Login', 'main')
@@ -387,8 +405,10 @@ def main():
         print("user's unique id :",userId)
         print("st.session_state.index_name is set to userId :",st.session_state.index_name)
 
+        # Sidebar Image
+        st.sidebar.image('images/logo.png')
         # File Uploader Widget ( as form ) in Streamlit Sidebar
-        st.sidebar.title('File Upload and Processing')
+        # st.sidebar.title('File Upload and Processing')
 
         with st.sidebar.form(key='sidebar_form'):
             # Allow the user to upload a file
@@ -510,7 +530,26 @@ def main():
                     st.error("Please upload some files first!")
                 else:
                     with st.chat_message("AI"):
-                        ai_response = st.write_stream(generate_response(prompt))
+                        # First, generate the AI response without displaying it yet
+                        ai_response = ""
+                        for chunk in generate_response(prompt):
+                            ai_response += chunk  # Collect the response from the generator
+
+                        print("real ai_response here:", ai_response)
+                        if not ai_response:
+                            ai_response = "No response generated from the AI model."  # Handle empty response
+
+                        if ai_response.strip() == "I'm sorry, but I couldn't find information about that in the provided PDF documents.":
+                            print("idhar aaya!!!!")
+                            # If AI couldn't find an answer, check in the JSON file
+                            answer = find_answer_from_json(prompt)
+                            print("answer from find_answer_from_json function:",answer)
+                            if answer:
+                                ai_response = answer  # Use the answer from the JSON file
+                            else:
+                                ai_response = "I'm sorry, but I couldn't find information about that in the provided PDF documents."
+                            
+                        st.write(ai_response)
 
                     st.session_state.chat_history.append(AIMessage(ai_response))
             else:
