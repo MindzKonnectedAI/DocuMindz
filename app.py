@@ -1,34 +1,58 @@
+#  UI components
 import streamlit as st # streamlit module ( for building UI )
 import os # Operating System module
+from dotenv import load_dotenv  # .env file loading
+
+
+#  LLM and Chat Components
 from langchain_openai import ChatOpenAI # OpenAI's Chat Model
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-from dotenv import load_dotenv  # .env file loading
+
+# PDF Processing 
 from llama_parse import LlamaParse #  LlamaParse for parsing PDF files
 from langchain_community.document_loaders import UnstructuredMarkdownLoader # Markdown file loader ( because we're using LlamaParse )
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
+
+# Vectore Datebase & Embedding 
 from langchain_openai import OpenAIEmbeddings
 from pinecone import Pinecone, ServerlessSpec  # Pinecone as Vector DB (Pinecone's Python Library)
 from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone library
+
+# Reranking and Retrieval 
 from langchain.retrievers import ContextualCompressionRetriever
 from cohere.client import Client as CohereClient
 from langchain_cohere import CohereRerank  # CohereRerank for reranking
+
+# Chain Components
 from langchain.chains import create_retrieval_chain
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_history_aware_retriever
+
+# Chat History  Mangements
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain.globals import set_verbose
-import joblib
-import nest_asyncio # not sure if this was needed in PDFRAG app
-import yaml
-from yaml.loader import SafeLoader
+
+# Authentication & Database
 import streamlit_authenticator_mongo as stauth
 from dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
+
+
+from langchain.globals import set_verbose
+import joblib 
+import nest_asyncio # not sure if this was needed in PDFRAG app
+import yaml
+from yaml.loader import SafeLoader
+from datetime import datetime
+
+
+
+
+
 
 
 def main():
@@ -62,12 +86,50 @@ def main():
 
     # LlamaParse api key
     llamaparse_api_key = os.getenv("LLAMAPARSE_API_KEY")
-    parsingInstructionUber10k = """The provided document is unstructured
-    It contains many tables, text, image and list.
-    Try to be precise while answering the questions"""
+    parsingInstructionUber10k = """
+The provided document contains structured and unstructured content including:
+1. Tables with numerical and textual data
+    - Extract complete table contents
+    - Preserve row and column relationships
+    - Maintain header information
+    - Capture any table titles or captions
+    - Identify any footnotes or annotations
+
+2. Graphs and Visual Elements
+    - Extract numerical data points from graphs
+    - Capture axis labels and scales
+    - Record legend information
+    - Note any trend lines or patterns
+    - Document chart titles and descriptions
+
+3. Text Content
+    - Preserve paragraph structure
+    - Maintain section headings and hierarchy
+    - Capture bullet points and numbered lists
+    - Record any footnotes or references
+    - Retain text formatting where significant
+
+4. Document Structure
+    - Maintain the logical flow between sections
+    - Preserve relationships between text and tables/graphs
+    - Keep cross-references intact
+    - Document page numbers and section markers
+
+When answering questions:
+- Prioritize precision in numerical data extraction
+- Maintain context between related elements
+- Cross-reference information across different sections
+- Provide specific source locations for extracted information
+- Include relevant metadata and annotations
+
+Please extract and format all content while preserving these structural relationships and data integrity.
+"""
+    # parsingInstructionUber10k = """The provided document is unstructured
+    # # It contains many tables, text, image and list.
+    # # Try to be precise while answering the questions"""
     parser = LlamaParse(
         api_key=llamaparse_api_key,
-        result_type="markdown",  # we want md file back
+        result_type="markdown",  # we want md file back type of file is (markdown)
         parsing_instruction=parsingInstructionUber10k,
         max_timeout=5000,
     )
@@ -157,7 +219,7 @@ def main():
             return None
         
         # Create vector database for multiple files
-    def create_vector_database(user_folder, file_paths):
+    def create_vector_database(user_folder, file_paths,selected_files):
         """
         Creates a vector database using document loaders and embeddings for multiple files.
 
@@ -168,12 +230,17 @@ def main():
         try:
             print("Inside create_vector_database function")
             all_docs = []
+            
+            # track document sources and page number 
+            doc_counter = 0
+            
             for file_path, file_name in zip(file_paths, selected_files):
                 # Call the function to either load or parse the data
                 llama_parse_documents = load_or_parse_data(user_folder, file_path, file_name)
                 if llama_parse_documents is None:
                     return
-
+                
+                # Convert to markdown
                 markdown_path = os.path.join(user_folder, f"{file_name}.md")
                 print("markdown_path", markdown_path)
 
@@ -183,18 +250,62 @@ def main():
 
                 loader = UnstructuredMarkdownLoader(markdown_path, encoding="utf-8")
                 documents = loader.load()
+                
+                # Enhance documents with sourse metadata
+                for doc in documents:
+                    doc.metadata.update({
+                        "file_name":file_name,
+                        "file_path": file_path,
+                        "doc_id":f"doc_{doc_counter}",
+                        "sourse_type": "pdf",
+                        "create_timestamp": datetime.now().isoformat(),
+                        "chunk_index": doc_counter
+                    })
+                    doc_counter +=1
+                
                 all_docs.extend(documents)
 
             # Split loaded documents into chunks
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
             docs = text_splitter.split_documents(all_docs)
+            
+            # prepare texts and enhansed metadatas
+            texts = []
+            metadatas = []
+            
+            for i,doc in enumerate(docs):
+                text = doc.page_content
+                metadata = doc.metadata.copy()
+            
+            # Add chunk-specific metadata
+                metadata.update({
+                    "chunk_id": f"chunk_{i}",
+                    "chunk_length": len(text),
+                    "chunk_position": i,
+                    "total_chunks": len(docs),
+                    "processing_timestamp": datetime.now().isoformat()
+                })
+                # Extract and add any potential section headers or titles
+                lines = text.split('\n')
+                if lines and lines[0].strip():
+                    metadata["chunk_title"] = lines[0].strip()[:100]
+                
+                texts.append(text)
+                metadatas.append(metadata)
+            
+            print("texts",texts)
+            print("metadatas",metadatas)
+            print("st.session_state.index_name", st.session_state.index_name)
+            
+            
 
-            # Prepare texts and metadatas
-            texts = [d.page_content for d in docs]
-            print("texts :",texts)
-            metadatas = [d.metadata for d in docs]
-            print("metadatas :",metadatas)
-            print("st.session_state.index_name :",st.session_state.index_name)
+            # # Prepare texts and metadatas
+            # texts = [d.page_content for d in docs]
+            # print("texts :",texts)
+            # metadatas = [d.metadata for d in docs]
+            # print("metadatas :", metadatas)
+            # print("st.session_state.index_name :",st.session_state.index_name)
+            
             PineconeVectorStore.from_texts(
                 texts, embeddings, index_name=st.session_state.index_name, metadatas=metadatas
             )
@@ -202,45 +313,59 @@ def main():
             print("Vector DB created successfully!")
             return
         except Exception as e:
+            print(f"Error details: {str(e)}")
             st.error(f"An error occurred while creating the vector database: {e}")
+            
 
     def process_selected_files(save_folder, email):
-        file_paths = []
-        for file in selected_files:
-            file_path = os.path.join(save_folder, file)
-            file_paths.append(file_path)
-        print("file paths :",file_paths)
-        # Check if the index exists
-        existing_indexes = pc.list_indexes()
-        print("existing_indexes list :",existing_indexes)
-        print("index_name to find :",st.session_state.index_name)
+        try:
+            file_paths = []
+            for file in selected_files:
+                file_path = os.path.join(save_folder, file)
+                file_paths.append(file_path)
+            print("file paths :",file_paths)
+            
+            # Check if the index exists
+            existing_indexes = pc.list_indexes()
+            print("existing_indexes list :",existing_indexes)
+            print("index_name to find :",st.session_state.index_name)
 
-        if any(index.name == st.session_state.index_name for index in existing_indexes):
-            # Delete the existing index
-            pc.delete_index(st.session_state.index_name)
-            print(f"Deleted existing index: ",{st.session_state.index_name})
+            if any(index.name == st.session_state.index_name for index in existing_indexes):
+                # Delete the existing index
+                pc.delete_index(st.session_state.index_name)
+                print(f"Deleted existing index: ",{st.session_state.index_name})
 
-        print("creating new index")
-        # Create a new index with the same name
-        pc.create_index(
-            name=st.session_state.index_name,
-            dimension=3072,
-            metric="cosine",
-            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-        )
-        print(f"Created new index: ", {st.session_state.index_name})
-        # Create user-specific directory in data/
-        user_folder = os.path.join("data", email)
-        os.makedirs(user_folder, exist_ok=True)
-        # Create the vector database for multiple files
-        create_vector_database(user_folder, file_paths)
-        # Save the names of the files that were converted
-        selected_file_folder = os.path.join("selected", email)
-        os.makedirs(selected_file_folder, exist_ok=True)
-        text_file_path = os.path.join(selected_file_folder, "selected.txt")
-        with open(text_file_path, "w") as f:
-            for file_name in selected_files:
-                f.write(file_name + "\n")
+            print("creating new index")
+            # Create a new index with the same name
+            pc.create_index(
+                name=st.session_state.index_name,
+                dimension=3072,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            )
+            print(f"Created new index: ", {st.session_state.index_name})
+            # Create user-specific directory in data/
+            user_folder = os.path.join("data", email)
+            os.makedirs(user_folder, exist_ok=True)
+            
+            # Create the vector database for multiple files
+            create_vector_database(user_folder, file_paths, selected_files)
+            
+            # Save the names of the files that were converted
+            selected_file_folder = os.path.join("selected", email)
+            os.makedirs(selected_file_folder, exist_ok=True)
+            text_file_path = os.path.join(selected_file_folder, "selected.txt")
+            
+            with open(text_file_path, "w") as f:
+                for file_name in selected_files:
+                    f.write(file_name + "\n")
+            
+            print("Successfully processed all file")
+            return True
+        except  Exception as e:
+            print(f"Error in process_selected_files: {str(e)}")
+            st.error(f"An error occurred while processing files: {str(e)}")
+            return False
 
 
     def disable():
@@ -296,16 +421,112 @@ def main():
             history_aware_retriever = create_history_aware_retriever(
                     llm, compression_retriever, contextualize_q_prompt
             )
+            system_prompt = """
+You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, structured text, and visual elements within provided PDF documents.
 
-            system_prompt = (
-                    "You are an assistant designed to answer questions strictly based on the content of provided PDF documents. "
-                    "You may respond to common greetings like 'Hi' or 'Hello' and summarize the content of the PDFs. "
-                    "For all other questions, only use the information contained within the PDFs."
-                    "If you cannot find the answer in the provided context, respond with: `I'm sorry, but I couldn't find information about that in the provided PDF documents.`"
-                    "Do not use any external knowledge beyond the PDFs."
-                    "\n\n"
-                    "{context}"
-            )
+When responding to questions:
+
+1. **Table Data Analysis:**
+   - Extract exact numerical values and relationships from tables, maintaining the structure.
+   - Format table data to display in a tabular layout when possible.
+   - Specify table titles and numbers to clearly identify sources.
+   - Include any footnotes or special notations, ensuring data context remains intact.
+
+2. **Visual Content Interpretation:**
+   - Describe data shown in charts and graphs with details on values, trends, and patterns.
+   - Reference relevant axis labels, legends, and scales.
+   - Summarize findings with direct connections to related text for holistic insight.
+
+3. **Textual Information:**
+   - Cite sections and page numbers when quoting or referencing text.
+   - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures.
+   - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order.
+
+**Response Format Guidelines:**
+- Identify source elements (table, text, or visual) at the beginning of responses.
+- For tables: Display data in a table format for readability.
+- For text: Retain PDF-style formatting, using bullets or lists as found in the document.
+- For visuals: Summarize visual data with references to axes and legends.
+- Include precise locations (page numbers, section numbers) for all referenced data.
+- Cross-reference across document elements when relevant, showing interconnections.
+- Maintain original data precision, units, and context qualifiers.
+
+If the required information cannot be found in the provided PDF content, respond with:
+"I cannot locate specific information about this in the provided PDF documents. Please verify if this information is present in the documents or rephrase your question."
+
+You may respond to basic greetings, but for all other queries, strictly use information from the provided documents.
+
+{context}
+"""
+
+#             system_prompt = """
+# You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, text, and visual elements within provided PDF documents.
+
+# When responding to questions:
+
+# 1. Table Data Analysis:
+#    - Extract exact numerical values and relationships from tables
+#    - Maintain column and row context when citing table data
+#    - Reference specific table numbers/titles when providing information
+#    - Consider any footnotes or special notations in tables
+
+# 2. Visual Content Interpretation:
+#    - Accurately describe data shown in graphs and charts
+#    - Include specific values, trends, and patterns from visualizations
+#    - Reference relevant axis labels, legends, and scales
+#    - Connect visual data with related textual context
+
+# 3. Textual Information:
+#    - Cite specific sections and page numbers when quoting text
+#    - Maintain hierarchical context of information
+#    - Include relevant bullet points and numbered lists
+#    - Consider footnotes and cross-references
+
+# Response Guidelines:
+# - Begin responses by identifying the source elements (table, text, or visual) used
+# - Provide specific locations (page numbers, section numbers) for cited information
+# - Cross-reference information across different document elements when relevant
+# - Present numerical data with original precision and units
+# - Include any relevant qualifiers or context notes from the source
+# - For complex answers, structure the response to show relationships between different source elements
+
+# If the information cannot be found in the provided PDF content, respond with:
+# "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is present in the documents or rephrase your question."
+
+# You may respond to basic greetings but for all other queries, strictly use information from the provided documents.
+
+# {context}
+# """
+
+            # system_prompt = (
+            #         "You are an assistant designed to answer questions strictly based on the content of provided PDF documents. "
+            #         "You may respond to common greetings like 'Hi' or 'Hello' and return content of pdf relevant to user question  "
+            #         "For all other questions, only use the information contained within the PDFs."
+            #         "ALWAYS return text in text format ,points in points format and table in tabular formats"
+            #         "If you cannot find the answer in the provided context, respond with: `I'm sorry, but I couldn't find information about that in the provided PDF documents.`"
+            #         "Do not use any external knowledge beyond the PDFs."
+            #         "\n\n"
+            #         "{context}"
+            # ) 
+#             system_prompt = """You are a PDF document analysis assistant. Your primary functions are:
+
+# 1. Response Guidelines:
+#    - Answer questions using ONLY information from provided PDF documents
+#    - Format responses appropriately:
+#      • Text as paragraphs
+#      • Lists as bullet points
+#      • Data as formatted tables
+#    - Greet users naturally for "hello" and similar
+
+# 2. Out-of-Scope Protocol:
+#    - If information not found in PDFs, respond:
+#    "I cannot find this information in the provided PDF documents."
+#    - Do not use external knowledge
+#    - Do not speculate or infer beyond document content
+
+# 3. Context Reference:
+# {context}
+# """
 
             chatPrompt = ChatPromptTemplate.from_messages(
                     [
