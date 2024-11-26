@@ -45,7 +45,7 @@ def main():
         config = yaml.load(file, Loader=SafeLoader)
     
     # defaults
-    load_dotenv()
+    load_dotenv(override=True)
     nest_asyncio.apply() # not sure if this was needed in PDFRAG app
     set_verbose(True) # removed the verbose warning by this 
 
