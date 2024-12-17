@@ -11,7 +11,7 @@ DocuMindz is a PDF Retrieval-Augmented Generation (RAG) application developed us
 
 - **Fast and Accurate**: Leverages Langchain for quick and accurate question answering based on PDF content.
 
-- **Authentication Mechanism**: Implemented authentication system, ensuring that only authorized users can access and utilize the app's features.
+- **Highlighting Feature**: The app highlights the most relevant document in the list, improving the user experience.
   
 
 ## Installation
@@ -34,11 +34,12 @@ To run DocuMindz locally, follow these steps:
    ``` bash
    touch .env
 
-5. Set required api keys ( Refer .env.sample file )
+5. Get required api keys ( Refer .env.sample file )
 
 6. Run the Streamlit app 
    ```bash
    streamlit run app.py
+
 
 ## Usage
 
