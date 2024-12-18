@@ -1,16 +1,13 @@
 #  UI components
-import pymupdf
 import streamlit as st # streamlit module ( for building UI )
 import os # Operating System module
 from dotenv import load_dotenv  # .env file loading
-
 
 #  LLM and Chat Components
 from langchain_openai import ChatOpenAI # OpenAI's Chat Model
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 # PDF Processing 
-from llama_parse import LlamaParse #  LlamaParse for parsing PDF files
 from langchain_community.document_loaders import UnstructuredMarkdownLoader # Markdown file loader ( because we're using LlamaParse )
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
 
@@ -30,7 +27,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_history_aware_retriever
 
-# Chat History  Mangements
+# Chat History Mangements
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
@@ -42,19 +39,14 @@ from dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
 
+# Langgraph Graph
+from graph import generate_response
 
 from langchain.globals import set_verbose
-import joblib 
 import nest_asyncio # not sure if this was needed in PDFRAG app
 import yaml
 from yaml.loader import SafeLoader
 from datetime import datetime
-import cv2
-import camelot
-from PIL import Image
-import pytesseract
-import pdfplumber
-# import fitz
 
 import pymupdf4llm
 from pathlib import Path
@@ -409,141 +401,141 @@ def main():
             st.session_state["file_uploader_key"] += 1
             # st.sidebar.success(f"File {file.name} uploaded successfully!")
 
-    # generate response 
-    def generate_response(prompt: str) :
-        try:
-            contextualize_q_system_prompt = (
-                "Given a chat history and the latest user question "
-                "which might reference context in the chat history, "
-                "formulate a standalone question which can be understood "
-                "without the chat history. Do NOT answer the question, "
-                "just reformulate it if needed and otherwise return it as is."
-            )
+    # # generate response 
+    # def generate_response(prompt: str) :
+    #     try:
+    #         contextualize_q_system_prompt = (
+    #             "Given a chat history and the latest user question "
+    #             "which might reference context in the chat history, "
+    #             "formulate a standalone question which can be understood "
+    #             "without the chat history. Do NOT answer the question, "
+    #             "just reformulate it if needed and otherwise return it as is."
+    #         )
                 
-            contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", contextualize_q_system_prompt),
-                        MessagesPlaceholder("chat_history"),
-                        ("human", "{input}"),
-                    ]
-            )
+    #         contextualize_q_prompt = ChatPromptTemplate.from_messages(
+    #                 [
+    #                     ("system", contextualize_q_system_prompt),
+    #                     MessagesPlaceholder("chat_history"),
+    #                     ("human", "{input}"),
+    #                 ]
+    #         )
 
-            # Reranker 
-            def reRanker():
-                compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
-                vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
-                compression_retriever = ContextualCompressionRetriever(
-                    base_compressor=compressor,
-                    base_retriever=vectorStore.as_retriever(
-                        search_kwargs={"k": 5},
-                    ),
-                )
-                return compression_retriever
+    #         # Reranker 
+    #         def reRanker():
+    #             compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
+    #             vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+    #             compression_retriever = ContextualCompressionRetriever(
+    #                 base_compressor=compressor,
+    #                 base_retriever=vectorStore.as_retriever(
+    #                     search_kwargs={"k": 5},
+    #                 ),
+    #             )
+    #             return compression_retriever
 
-            compression_retriever = reRanker()
+    #         compression_retriever = reRanker()
 
-            history_aware_retriever = create_history_aware_retriever(
-                    llm, compression_retriever, contextualize_q_prompt
-            )
+    #         history_aware_retriever = create_history_aware_retriever(
+    #                 llm, compression_retriever, contextualize_q_prompt
+    #         )
 
-            system_prompt = """You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, structured text, and visual elements within provided PDF documents, with advanced capabilities for mathematical calculations and reasoning.
-            When responding to questions:
+    #         system_prompt = """You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, structured text, and visual elements within provided PDF documents, with advanced capabilities for mathematical calculations and reasoning.
+    #         When responding to questions:
 
-            1. **Table Data Analysis:**
-            - Extract exact numerical values and relationships from tables, maintaining the structure
-            - ALWAYS Format table data to display in a tabular layout
-            - Specify table titles and numbers to clearly identify sources
-            - Include any footnotes or special notations, ensuring data context remains intact
-            - For mathematical operations on table data:
-                * First display the relevant table data being used
-                * Show each mathematical step separately with clear labels
-                * Include subtotals for complex calculations
-                * Validate results by cross-checking across different tables if applicable
+    #         1. **Table Data Analysis:**
+    #         - Extract exact numerical values and relationships from tables, maintaining the structure
+    #         - ALWAYS Format table data to display in a tabular layout
+    #         - Specify table titles and numbers to clearly identify sources
+    #         - Include any footnotes or special notations, ensuring data context remains intact
+    #         - For mathematical operations on table data:
+    #             * First display the relevant table data being used
+    #             * Show each mathematical step separately with clear labels
+    #             * Include subtotals for complex calculations
+    #             * Validate results by cross-checking across different tables if applicable
 
-            2. **Mathematical Reasoning and Calculations:**
-            - For any calculation, follow these steps:
-                1. Clearly state the mathematical problem to be solved
-                2. List all relevant values and their sources (page numbers, table numbers)
-                3. Show each calculation step with explanations
-                4. Use proper mathematical notation and units
-                5. Provide intermediate results for complex calculations
-                6. Double-check calculations and show verification steps
-                7. Present the final result with appropriate context
-            - When performing calculations across multiple tables:
-                * First organize all relevant data in a structured format
-                * Show relationships between different data sources
-                * Explain any assumptions or data transformations
-                * Validate consistency of units and formats before calculations
+    #         2. **Mathematical Reasoning and Calculations:**
+    #         - For any calculation, follow these steps:
+    #             1. Clearly state the mathematical problem to be solved
+    #             2. List all relevant values and their sources (page numbers, table numbers)
+    #             3. Show each calculation step with explanations
+    #             4. Use proper mathematical notation and units
+    #             5. Provide intermediate results for complex calculations
+    #             6. Double-check calculations and show verification steps
+    #             7. Present the final result with appropriate context
+    #         - When performing calculations across multiple tables:
+    #             * First organize all relevant data in a structured format
+    #             * Show relationships between different data sources
+    #             * Explain any assumptions or data transformations
+    #             * Validate consistency of units and formats before calculations
 
-            3. **Visual Content Interpretation:**
-            - Describe data shown in charts and graphs with details on values, trends, and patterns
-            - Reference relevant axis labels, legends, and scales
-            - Extract numerical data from graphs for calculations when needed
-            - Show mathematical relationships between visual data points
-            - Summarize findings with direct connections to related text for holistic insight
+    #         3. **Visual Content Interpretation:**
+    #         - Describe data shown in charts and graphs with details on values, trends, and patterns
+    #         - Reference relevant axis labels, legends, and scales
+    #         - Extract numerical data from graphs for calculations when needed
+    #         - Show mathematical relationships between visual data points
+    #         - Summarize findings with direct connections to related text for holistic insight
 
-            4. **Textual Information:**
-            - Cite sections and page numbers when quoting or referencing text
-            - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures
-            - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order
-            - Extract numerical information from text for calculations when relevant
+    #         4. **Textual Information:**
+    #         - Cite sections and page numbers when quoting or referencing text
+    #         - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures
+    #         - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order
+    #         - Extract numerical information from text for calculations when relevant
 
-            **Response Format Guidelines:**
-            - Identify source elements (table, text, or visual) at the beginning of responses
-            - For tables: Display data in a table format for readability
-            - For calculations:
-            * Use markdown code blocks for showing calculation steps
-            * Format mathematical equations clearly
-            * Include units in each step
-            * Show intermediate results
-            - For text: Retain PDF-style formatting, using bullets or lists as found in the document
-            - For visuals: Summarize visual data with references to axes and legends
-            - Include precise locations (page numbers, section numbers) for all referenced data
-            - Cross-reference across document elements when relevant, showing interconnections
-            - Maintain original data precision, units, and context qualifiers
+    #         **Response Format Guidelines:**
+    #         - Identify source elements (table, text, or visual) at the beginning of responses
+    #         - For tables: Display data in a table format for readability
+    #         - For calculations:
+    #         * Use markdown code blocks for showing calculation steps
+    #         * Format mathematical equations clearly
+    #         * Include units in each step
+    #         * Show intermediate results
+    #         - For text: Retain PDF-style formatting, using bullets or lists as found in the document
+    #         - For visuals: Summarize visual data with references to axes and legends
+    #         - Include precise locations (page numbers, section numbers) for all referenced data
+    #         - Cross-reference across document elements when relevant, showing interconnections
+    #         - Maintain original data precision, units, and context qualifiers
 
-            **For Mathematical Operations:**
-            ```
-            Step 1: State the calculation objective
-            Step 2: List source data with references
-            Step 3: Show calculation setup
-            Step 4: Perform operations step by step
-            Step 5: Verify results
-            Step 6: Present final answer with context
-            ```
+    #         **For Mathematical Operations:**
+    #         ```
+    #         Step 1: State the calculation objective
+    #         Step 2: List source data with references
+    #         Step 3: Show calculation setup
+    #         Step 4: Perform operations step by step
+    #         Step 5: Verify results
+    #         Step 6: Present final answer with context
+    #         ```
 
-            If the required information cannot be found in the provided PDF content, respond with: "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is present in the documents or rephrase your question."
+    #         If the required information cannot be found in the provided PDF content, respond with: "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is present in the documents or rephrase your question."
 
-            You may respond to basic greetings, but for all other queries, strictly use information from the provided documents.
+    #         You may respond to basic greetings, but for all other queries, strictly use information from the provided documents.
 
-            {context}"""
+    #         {context}"""
 
 
-            chatPrompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", system_prompt),
-                        MessagesPlaceholder("chat_history"),
-                        ("human", "{input}"),
-                    ]
-            )
+    #         chatPrompt = ChatPromptTemplate.from_messages(
+    #                 [
+    #                     ("system", system_prompt),
+    #                     MessagesPlaceholder("chat_history"),
+    #                     ("human", "{input}"),
+    #                 ]
+    #         )
                             
-            question_answer_chain = create_stuff_documents_chain(llm, chatPrompt)
+    #         question_answer_chain = create_stuff_documents_chain(llm, chatPrompt)
 
-            rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
+    #         rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
 
-            conversational_rag_chain = RunnableWithMessageHistory(
-                    rag_chain,
-                    get_session_history,
-                    input_messages_key="input",
-                    output_messages_key="answer",
-                    history_messages_key="chat_history",
-            )
-            for chunk in conversational_rag_chain.stream(input={"input": prompt},config={'configurable': {'session_id': st.session_state.session_id}}):
-                answer_chunk = chunk.get("answer")
-                if answer_chunk:
-                    yield answer_chunk
-        except Exception as e:
-            st.error(f"An error occurred while generating the response: {e}")
+    #         conversational_rag_chain = RunnableWithMessageHistory(
+    #                 rag_chain,
+    #                 get_session_history,
+    #                 input_messages_key="input",
+    #                 output_messages_key="answer",
+    #                 history_messages_key="chat_history",
+    #         )
+    #         for chunk in conversational_rag_chain.stream(input={"input": prompt},config={'configurable': {'session_id': st.session_state.session_id}}):
+    #             answer_chunk = chunk.get("answer")
+    #             if answer_chunk:
+    #                 yield answer_chunk
+    #     except Exception as e:
+    #         st.error(f"An error occurred while generating the response: {e}")
 
     def _register_credentials(email: str, name: str, password: str):
         if not validator.validate_name(name):
@@ -730,7 +722,8 @@ def main():
                     st.error("Please upload some files first!")
                 else:
                     with st.chat_message("AI"):
-                        ai_response = st.write_stream(generate_response(prompt))
+                        ai_response =generate_response(prompt,st.session_state.index_name)
+                        st.write(ai_response)
 
                     st.session_state.chat_history.append(AIMessage(ai_response))
             else:
