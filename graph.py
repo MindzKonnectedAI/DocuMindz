@@ -44,7 +44,7 @@ llm = ChatOpenAI(
 #     return compression_retriever
 
 # Main function to generate a response
-def generate_response(prompt,index_name):
+def generate_response(prompt,index_name,chat_history):
     vectorStore = PineconeVectorStore(index_name=index_name, embedding=embeddings)
 
     retriever = vectorStore.as_retriever(search_kwargs={"k": 5})
@@ -88,7 +88,8 @@ def generate_response(prompt,index_name):
 
     # Define agent
     def agent(state):
-        messages = state["messages"]
+        messages = chat_history + state["messages"]
+        print("messages of agent :",messages)
         model = llm.bind_tools([retriever_tool])
             
         try:

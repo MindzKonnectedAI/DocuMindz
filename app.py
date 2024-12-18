@@ -722,7 +722,7 @@ def main():
                     st.error("Please upload some files first!")
                 else:
                     with st.chat_message("AI"):
-                        ai_response =generate_response(prompt,st.session_state.index_name)
+                        ai_response =generate_response(prompt,st.session_state.index_name,st.session_state.chat_history)
                         st.write(ai_response)
 
                     st.session_state.chat_history.append(AIMessage(ai_response))
