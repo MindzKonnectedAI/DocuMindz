@@ -1,3 +1,9 @@
 .env 
 
 __pycache__/
+
+data/
+
+PDF_PATH/
+
+selected/
