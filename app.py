@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 # PDF Processing 
 from langchain_community.document_loaders import UnstructuredMarkdownLoader # Markdown file loader ( because we're using LlamaParse )
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
+from langchain_experimental.text_splitter import SemanticChunker
 
 # Vectore Datebase & Embedding 
 from langchain_openai import OpenAIEmbeddings
@@ -53,6 +54,7 @@ from pathlib import Path
 
 import json 
 import time
+import sys
 
 def main():
 
@@ -189,57 +191,40 @@ def main():
         if session_id not in st.session_state.store:
             st.session_state.store[session_id] = ChatMessageHistory()
         return st.session_state.store[session_id]    
-
-    # Loading and Parsing Data with the help of LlamaParse
+     
     def load_or_parse_data(user_folder, file_path, file_name):
         """
-        Load or parse PDF data into markdown format.
-        
+        Load or parse PDF data into markdown format and save to file system.
+
         Args:
             user_folder (str): User's folder path
             file_path (str): Full path to the PDF file
             file_name (str): Name of the file
-        
+
         Returns:
-            parsed data or None if parsing fails
+            parsed_data or None if parsing fails
         """
         try:
-            # Extract images and parse markdown
-            images, parsed_data = extract_images_from_pdf(file_path, user_folder)
-            
-            # print(user_folder,file_path)
-            updated_md_text = parsed_data.replace(user_folder, './')
-            
-            if updated_md_text is None:
+            # Extract parsed data (ignoring images)
+            _, parsed_data = extract_images_from_pdf(file_path, user_folder)
+            print("length of parsed_data :",len(parsed_data))
+            if parsed_data is None:
                 st.error("Failed to parse PDF")
                 return None
-            
-            # Create markdown file with images and text
+
+            # Write parsed_data to markdown file
             markdown_path = os.path.join(user_folder, f"{file_name}.md")
-            
             with open(markdown_path, "w", encoding="utf-8") as f:
-                # Write text content
-                for doc in updated_md_text:
-                    f.write(doc if isinstance(doc, str) else doc.text + "\n")
-                
-                # Add image references
-                f.write("\n## Images\n")
-                for img in images:
-                    # Use relative path for markdown image reference
-                    relative_img_path = os.path.relpath(img['path'], user_folder)
-                    f.write(f"\n![{img['filename']}]({relative_img_path})\n")
-            
+                f.write(parsed_data)
+
             print(f"Markdown file created: {markdown_path}")
-            print(f"Number of images extracted: {len(images)}")
-            
-            return updated_md_text
-        
+
         except Exception as e:
             st.error(f"An error occurred while loading or parsing the data: {e}")
             return None
-     
+
     # Create vector database for multiple files
-    def create_vector_database(user_folder, file_paths,selected_files):
+    def create_vector_database(user_folder, file_paths, selected_files):
         """
         Creates a vector database using document loaders and embeddings for multiple files.
 
@@ -249,86 +234,55 @@ def main():
         """
         try:
             print("Inside create_vector_database function")
-            all_docs = []
-            
-            # track document sources and page number 
-            doc_counter = 0
-            
+            text_splitter = SemanticChunker(embeddings, breakpoint_threshold_amount=95)   
+
             for file_path, file_name in zip(file_paths, selected_files):
                 # Call the function to either load or parse the data
-                llama_parse_documents = load_or_parse_data(user_folder, file_path, file_name)
-                if llama_parse_documents is None:
-                    return
-                
-                images = extract_images_from_pdf(file_path, user_folder)
-                # tables = extract_tables_from_pdf(file_path)
-                
+                load_or_parse_data(user_folder, file_path, file_name)
+                                
                 # Convert to markdown
                 markdown_path = os.path.join(user_folder, f"{file_name}.md")
-                print("markdown_path", markdown_path)
 
-                with open(markdown_path, "w", encoding="utf-8") as f:
-                    for doc in llama_parse_documents:
-                        f.write(doc if isinstance(doc, str) else doc.text + "\n")
-                        # f.write(doc.text + "\n")
-
+                # Parsed Data length issue from this !!! UnstructuredMarkdownLoader
                 loader = UnstructuredMarkdownLoader(markdown_path, encoding="utf-8")
                 documents = loader.load()
-                # documents = [Document(page_content=doc, metadata={"source": file_name, "page_number": i}) for i, doc in enumerate(llama_parse_documents)]
-                
-                # Enhance documents with sourse metadata
-                for doc in documents:
-                    related_images = [json.dumps(img)[:500] for img in images]  # Truncate large image metadata
-                    doc.metadata.update({
-                        "file_name":file_name,
-                        "file_path": file_path,
-                        "doc_id":f"doc_{doc_counter}",
-                        "sourse_type": "pdf",
-                        "create_timestamp": datetime.now().isoformat(),
-                        "chunk_index": doc_counter,
-                        "related_images": related_images  # Attach extracted image metadata
-                    })
-                    doc_counter +=1
-                
-                all_docs.extend(documents)
+                print("length of document data :",len(documents[0].page_content))
 
-            # Split loaded documents into chunks
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
-            docs = text_splitter.split_documents(all_docs)
-            
-            # prepare texts and enhansed metadatas
-            texts = []
-            metadatas = []
-            
-            for i,doc in enumerate(docs):
-                text = doc.page_content
-                metadata = doc.metadata.copy()
-            
-            # Add chunk-specific metadata
-                metadata.update({
-                    "chunk_id": f"chunk_{i}",
-                    "chunk_length": len(text),
-                    "chunk_position": i,
-                    "total_chunks": len(docs),
-                    "processing_timestamp": datetime.now().isoformat()
-                })
-                # Extract and add any potential section headers or titles
-                lines = text.split('\n')
-                if lines and lines[0].strip():
-                    metadata["chunk_title"] = lines[0].strip()[:100]
-                
-                texts.append(text)
-                metadatas.append(metadata)
-            
-            print("texts",texts)
-            print("metadatas",metadatas)
-            print("st.session_state.index_name", st.session_state.index_name)
-            
-            PineconeVectorStore.from_texts(
-                texts, embeddings, index_name=st.session_state.index_name, metadatas=metadatas
-            )
+                # Split loaded documents into chunks
+                docs = text_splitter.split_documents(documents)
+                print("length of chunks :",len(docs))
 
-            print("Vector DB created successfully!")
+                # for idx, chunk in enumerate(docs, 1):
+                #     # Calculate chunk size in bytes
+                #     chunk_size_bytes = sys.getsizeof(chunk)
+
+                #     # Convert to kilobytes
+                #     chunk_size_kb = chunk_size_bytes / 1024
+
+                #     print(f"Chunk {idx}:")
+                #     print(f"Size: {chunk_size_bytes} bytes")
+                #     print(f"Size: {chunk_size_kb:.2f} KB")
+                #     print(f"Content:\n{chunk}\n{'-' * 40}")
+
+                # prepare texts and enhansed metadatas
+                texts = []
+                metadatas = []
+            
+                for i,doc in enumerate(docs):
+                    text = doc.page_content
+                    metadata = doc.metadata.copy()                    
+                    texts.append(text)
+                    metadatas.append(metadata)
+                
+                # print("texts",texts)
+                # print("metadatas",metadatas)
+                print("st.session_state.index_name", st.session_state.index_name)
+                
+                PineconeVectorStore.from_texts(
+                    texts, embeddings, index_name=st.session_state.index_name, metadatas=metadatas
+                )
+                print("Data upserted for {file_name} PDF file in Pinecone")
+
             return
         except Exception as e:
             print(f"Error details: {str(e)}")
@@ -340,12 +294,10 @@ def main():
             for file in selected_files:
                 file_path = os.path.join(save_folder, file)
                 file_paths.append(file_path)
-            print("file paths :",file_paths)
             
             # Check if the index exists
+            print("checking for existing index")
             existing_indexes = pc.list_indexes()
-            print("existing_indexes list :",existing_indexes)
-            print("index_name to find :",st.session_state.index_name)
 
             if any(index.name == st.session_state.index_name for index in existing_indexes):
                 # Delete the existing index
@@ -377,7 +329,7 @@ def main():
                 for file_name in selected_files:
                     f.write(file_name + "\n")
             
-            print("Successfully processed all file")
+            print("Successfully processed all files")
             return True
         except  Exception as e:
             print(f"Error in process_selected_files: {str(e)}")
@@ -579,19 +531,16 @@ def main():
                         st.error('Please enter an email, name, and password')
 
     if st.session_state["authentication_status"]:
-        print("session_state after authentication_status is true :",st.session_state)
         email = st.session_state["email"]
 
         # PDF files directory (to save PDF files to local db)
         save_folder = f"PDF_PATH/{email}"
-        print("save folder :",save_folder)
 
         userData = collection.find_one({"email":email})
-        print("user id by email :",userData["_id"])
         userId = userData["_id"]
         st.session_state.index_name = str(userId)
+        print("user data: ",userData)
         print("user's unique id :",userId)
-        print("st.session_state.index_name is set to userId :",st.session_state.index_name)
 
         # Sidebar Image
         st.sidebar.image('images/logo.png')
