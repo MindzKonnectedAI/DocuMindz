@@ -103,7 +103,6 @@ def main():
         Returns:
         list: List of dictionaries containing image details.
         """
-        images = []
         
         # Create directory for extracted images
         images_dir = os.path.join(user_folder, 'extracted_images')
@@ -119,21 +118,8 @@ def main():
                     image_path=images_dir
                 )
 
-            # Process extracted images for metadata
-            for img_file in Path(images_dir).glob("*.png"):
-                img_filename = img_file.name
-                img_path = str(img_file)
-                file_size = os.path.getsize(img_path)
-                
-                # Collect image metadata
-                images.append({
-                    "filename": img_filename,
-                    "path": img_path,
-                    "file_size": file_size,
-                    "extraction_timestamp": datetime.now().isoformat()
-                })
-                
-            return images , parsed_data
+
+            return parsed_data
         except Exception as e:
             print(f"Error extracting images from PDF: {e}")
             
@@ -204,55 +190,6 @@ def main():
             st.session_state.store[session_id] = ChatMessageHistory()
         return st.session_state.store[session_id]    
 
-    # Do not Disturb
-    # Loading and Parsing Data with the help of LlamaParse
-    def load_or_parse_data(user_folder, file_path, file_name):
-        """
-        Load or parse PDF data into markdown format.
-        
-        Args:
-            user_folder (str): User's folder path
-            file_path (str): Full path to the PDF file
-            file_name (str): Name of the file
-        
-        Returns:
-            parsed data or None if parsing fails
-        """
-        try:
-            # Extract images and parse markdown
-            images, parsed_data = extract_images_from_pdf(file_path, user_folder)
-            
-            # print(user_folder,file_path)
-            updated_md_text = parsed_data.replace(user_folder, './')
-            
-            if updated_md_text is None:
-                st.error("Failed to parse PDF")
-                return None
-            
-            # Create markdown file with images and text
-            markdown_path = os.path.join(user_folder, f"{file_name}.md")
-            
-            with open(markdown_path, "w", encoding="utf-8") as f:
-                # Write text content
-                for doc in updated_md_text:
-                    f.write(doc if isinstance(doc, str) else doc.text + "\n")
-                
-                # Add image references
-                f.write("\n## Images\n")
-                for img in images:
-                    # Use relative path for markdown image reference
-                    relative_img_path = os.path.relpath(img['path'], user_folder)
-                    f.write(f"\n![{img['filename']}]({relative_img_path})\n")
-            
-            print(f"Markdown file created: {markdown_path}")
-            print(f"Number of images extracted: {len(images)}")
-            
-            return updated_md_text
-        
-        except Exception as e:
-            st.error(f"An error occurred while loading or parsing the data: {e}")
-            return None
-     
     # Create vector database for multiple files
     def create_vector_database(user_folder, file_paths,selected_files):
         """
@@ -264,96 +201,28 @@ def main():
         """
         try:
             print("Inside create_vector_database function")
-            all_docs = []
-            
-            # track document sources and page number 
-            doc_counter = 0
             
             for file_path, file_name in zip(file_paths, selected_files):
-                # Call the function to either load or parse the data
-                llama_parse_documents = load_or_parse_data(user_folder, file_path, file_name)
-                if llama_parse_documents is None:
-                    return
                 
-                images = extract_images_from_pdf(file_path, user_folder)
-                # tables = extract_tables_from_pdf(file_path)
+                parsed_data = extract_images_from_pdf(file_path, user_folder)
+
+                docs = []
+
+                if(st.session_state.chunking_strategy=="Recursive"):
+                    ## Recursive Chunking 
+                    recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+                    docs = recursive_text_splitter.split_text(parsed_data)
                 
-                # Convert to markdown
-                markdown_path = os.path.join(user_folder, f"{file_name}.md")
-                print("markdown_path", markdown_path)
-
-                with open(markdown_path, "w", encoding="utf-8") as f:
-                    for doc in llama_parse_documents:
-                        f.write(doc if isinstance(doc, str) else doc.text + "\n")
-                        # f.write(doc.text + "\n")
-
-                loader = UnstructuredMarkdownLoader(markdown_path, encoding="utf-8")
-                documents = loader.load()
-                # documents = [Document(page_content=doc, metadata={"source": file_name, "page_number": i}) for i, doc in enumerate(llama_parse_documents)]
+                elif(st.session_state.chunking_strategy=="Semantic"):
+                    ## Semantic Chunking
+                    semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
+                    docs = semantic_text_splitter.split_text(parsed_data)
                 
-                # Enhance documents with sourse metadata
-                for doc in documents:
-                    related_images = [json.dumps(img)[:500] for img in images]  # Truncate large image metadata
-                    doc.metadata.update({
-                        "file_name":file_name,
-                        "file_path": file_path,
-                        "doc_id":f"doc_{doc_counter}",
-                        "sourse_type": "pdf",
-                        "create_timestamp": datetime.now().isoformat(),
-                        "chunk_index": doc_counter,
-                        "related_images": related_images  # Attach extracted image metadata
-                    })
-                    doc_counter +=1
-                
-                all_docs.extend(documents)
+                PineconeVectorStore.from_texts(
+                    texts=docs, embedding=embeddings, index_name=st.session_state.index_name
+                )
 
-            # Split loaded documents into chunks
-
-            docs = []
-
-            if(st.session_state.chunking_strategy=="Recursive"):
-                ## Recursive Chunking 
-                recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
-                docs = recursive_text_splitter.split_documents(all_docs)
-            
-            elif(st.session_state.chunking_strategy=="Semantic"):
-                ## Semantic Chunking
-                semantic_text_splitter = SemanticChunker(embeddings, breakpoint_threshold_amount=95)
-                docs = semantic_text_splitter.split_documents(all_docs)
-
-            # prepare texts and enhansed metadatas
-            texts = []
-            metadatas = []
-            
-            for i,doc in enumerate(docs):
-                text = doc.page_content
-                metadata = doc.metadata.copy()
-            
-            # Add chunk-specific metadata
-                metadata.update({
-                    "chunk_id": f"chunk_{i}",
-                    "chunk_length": len(text),
-                    "chunk_position": i,
-                    "total_chunks": len(docs),
-                    "processing_timestamp": datetime.now().isoformat()
-                })
-                # Extract and add any potential section headers or titles
-                lines = text.split('\n')
-                if lines and lines[0].strip():
-                    metadata["chunk_title"] = lines[0].strip()[:100]
-                
-                texts.append(text)
-                metadatas.append(metadata)
-            
-            print("texts",texts)
-            print("metadatas",metadatas)
-            print("st.session_state.index_name", st.session_state.index_name)
-            
-            PineconeVectorStore.from_texts(
-                texts, embeddings, index_name=st.session_state.index_name, metadatas=metadatas
-            )
-
-            print("Vector DB created successfully!")
+                print(file_name+" upserted to Pinecone successfully")
             return
         except Exception as e:
             print(f"Error details: {str(e)}")
@@ -463,79 +332,82 @@ def main():
                     llm, compression_retriever, contextualize_q_prompt
             )
 
-            system_prompt = """You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, structured text, and visual elements within provided PDF documents, with advanced capabilities for mathematical calculations and reasoning.
+            system_prompt = """You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+            structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
 
-            When responding to questions:
+            When responding to questions, adhere to the following guidelines:
 
-            1. **Table Data Analysis:**
-                - Extract exact numerical values and relationships from tables, maintaining the structure
-                - ALWAYS Format table data to display in a tabular layout
-                - Specify table titles and numbers to clearly identify sources
-                - Include any footnotes or special notations, ensuring data context remains intact
-                - For mathematical operations on table data:
-                * First display the relevant table data being used
-                * Show each mathematical step separately with clear labels
-                * Include subtotals for complex calculations
-                * Validate results by cross-checking across different tables if applicable
+            1. Table Data Analysis
+            - Extract and format numerical values and relationships into clear, tabular layouts
+            - Always:
+                * Specify table titles and numbers for source identification
+                * Include footnotes or special notations to preserve context
+            - For tables spread across multiple pages:
+                * Clearly indicate when a table spans multiple pages
+                * Consolidate the data into a single cohesive format, ensuring no information is missed
+                * Reference the page range where the table appears for clarity
+            - For mathematical operations involving table data:
+                * Present the relevant table data
+                * Show each calculation step clearly with labeled subtotals and intermediate results
+                * Validate results by cross-referencing multiple tables if applicable
 
-            2. **Mathematical Reasoning and Calculations:**
-                - For any calculation, follow these steps:
-                1. Clearly state the mathematical problem to be solved
-                2. List all relevant values and their sources (page numbers, table numbers)
-                3. Show each calculation step with explanations
-                4. Use proper mathematical notation and units
-                5. Provide intermediate results for complex calculations
-                6. Double-check calculations and show verification steps
-                7. Present the final result with appropriate context
-                - When performing calculations across multiple tables:
-                * First organize all relevant data in a structured format
-                * Show relationships between different data sources
-                * Explain any assumptions or data transformations
-                * Validate consistency of units and formats before calculations
+            2. Mathematical Reasoning and Calculations
+            Steps to Perform Calculations:
+            - Clearly define the mathematical problem or objective
+            - List all relevant data with precise source references (e.g., page numbers, table numbers)
+            - Show every calculation step with detailed explanations using proper notation and units
+            - Validate consistency of units and formats before proceeding
+            - Verify results through cross-checking or secondary calculations
+            - Present the final answer with appropriate context
 
-            3. **Visual Content Interpretation:**
-                - Describe data shown in charts and graphs with details on values, trends, and patterns
-                - Reference relevant axis labels, legends, and scales
-                - Extract numerical data from graphs for calculations when needed
-                - Show mathematical relationships between visual data points
-                - Summarize findings with direct connections to related text for holistic insight
+            For calculations across multiple tables:
+            - Organize all relevant data in a structured format
+            - Show relationships between different data sources
+            - Clearly explain assumptions and data transformations
 
-            4. **Textual Information:**
-                - Cite sections and page numbers when quoting or referencing text
-                - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures
-                - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order
-                - Extract numerical information from text for calculations when relevant
+            3. Visual Content Interpretation
+            Analyze charts and graphs:
+            - Describe data values, trends, and patterns, referencing axes, legends, and scales
+            - Extract numerical data as needed for calculations
+            - Summarize findings by connecting visual data with related text or tables
 
-            **Response Format Guidelines:**
-            - Identify source elements (table, text, or visual) at the beginning of responses
-            - For tables: Display data in a table format for readability
-            - For calculations:
+            4. Textual Information
+            - Reference sections and page numbers when quoting or summarizing text
+            - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+            - Capture hierarchical details, including footnotes and cross-references
+            - Extract numerical information for calculations when relevant
+
+            Response Format Guidelines:
+            - Source Identification: Start by identifying data sources (e.g., table, text, visual)
+            - Tables: Present data in a clean table format for readability
+            - Calculations:
                 * Use markdown code blocks for showing calculation steps
-                * Format mathematical equations clearly
-                * Include units in each step
-                * Show intermediate results
-            - For text: Retain PDF-style formatting, using bullets or lists as found in the document
-            - For visuals: Summarize visual data with references to axes and legends
-            - Include precise locations (page numbers, section numbers) for all referenced data
-            - Cross-reference across document elements when relevant, showing interconnections
-            - Maintain original data precision, units, and context qualifiers
+                * Clearly format equations with intermediate results and units
+            - Text: Preserve PDF-style formatting (e.g., bullets, lists)
+            - Visuals: Summarize data with references to legends, axes, and scales
+            - Locations: Cite exact locations (page numbers, section titles) for all referenced information
+            - Cross-Referencing: Connect related document elements for a cohesive response
+            - Data Integrity: Maintain the original precision, units, and context of all data
 
-            **For Mathematical Operations:**
-            ```
-            Step 1: State the calculation objective
+            Mathematical Operations Format:
+            Step 1: Define the objective
             Step 2: List source data with references
-            Step 3: Show calculation setup
-            Step 4: Perform operations step by step
+            Step 3: Show the calculation setup
+            Step 4: Perform step-by-step operations
             Step 5: Verify results
-            Step 6: Present final answer with context
-            ```
+            Step 6: Present the final result with context
 
-            If the required information cannot be found in the provided PDF content, respond with: "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is present in the documents or rephrase your question."
+            Error Handling:
+            If the required information is not found in the documents, respond with:
+            "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
 
-            You may respond to basic greetings, but for all other queries, strictly use information from the provided documents.
+            For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+
+            You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
             {context}"""
-            
+
+
             chatPrompt = ChatPromptTemplate.from_messages(
                     [
                         ("system", system_prompt),
