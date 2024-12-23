@@ -13,6 +13,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from llama_parse import LlamaParse #  LlamaParse for parsing PDF files
 from langchain_community.document_loaders import UnstructuredMarkdownLoader # Markdown file loader ( because we're using LlamaParse )
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
+from langchain_experimental.text_splitter import SemanticChunker
 
 # Vectore Datebase & Embedding 
 from langchain_openai import OpenAIEmbeddings
@@ -91,6 +92,7 @@ def main():
         config['cookie']['expiry_days'],
     )
 
+    # Do not Disturb
     def extract_images_from_pdf(file_path, user_folder):
         """ 
         Extract images from PDF with enhanced metadata using pymupdf4llm.
@@ -177,6 +179,10 @@ def main():
     if "store" not in st.session_state:
         st.session_state.store = {}
 
+    # Initialize chunking_strategy if not in session state
+    if "chunking_strategy" not in st.session_state:
+        st.session_state.chunking_strategy = "Recursive"
+
     ### Statefully manage chat history ###
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
@@ -198,6 +204,7 @@ def main():
             st.session_state.store[session_id] = ChatMessageHistory()
         return st.session_state.store[session_id]    
 
+    # Do not Disturb
     # Loading and Parsing Data with the help of LlamaParse
     def load_or_parse_data(user_folder, file_path, file_name):
         """
@@ -301,9 +308,19 @@ def main():
                 all_docs.extend(documents)
 
             # Split loaded documents into chunks
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
-            docs = text_splitter.split_documents(all_docs)
+
+            docs = []
+
+            if(st.session_state.chunking_strategy=="Recursive"):
+                ## Recursive Chunking 
+                recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+                docs = recursive_text_splitter.split_documents(all_docs)
             
+            elif(st.session_state.chunking_strategy=="Semantic"):
+                ## Semantic Chunking
+                semantic_text_splitter = SemanticChunker(embeddings, breakpoint_threshold_amount=95)
+                docs = semantic_text_splitter.split_documents(all_docs)
+
             # prepare texts and enhansed metadatas
             texts = []
             metadatas = []
@@ -447,21 +464,22 @@ def main():
             )
 
             system_prompt = """You are a specialized document analysis assistant designed to provide precise answers by synthesizing information from tables, structured text, and visual elements within provided PDF documents, with advanced capabilities for mathematical calculations and reasoning.
+
             When responding to questions:
 
             1. **Table Data Analysis:**
-            - Extract exact numerical values and relationships from tables, maintaining the structure
-            - ALWAYS Format table data to display in a tabular layout
-            - Specify table titles and numbers to clearly identify sources
-            - Include any footnotes or special notations, ensuring data context remains intact
-            - For mathematical operations on table data:
+                - Extract exact numerical values and relationships from tables, maintaining the structure
+                - ALWAYS Format table data to display in a tabular layout
+                - Specify table titles and numbers to clearly identify sources
+                - Include any footnotes or special notations, ensuring data context remains intact
+                - For mathematical operations on table data:
                 * First display the relevant table data being used
                 * Show each mathematical step separately with clear labels
                 * Include subtotals for complex calculations
                 * Validate results by cross-checking across different tables if applicable
 
             2. **Mathematical Reasoning and Calculations:**
-            - For any calculation, follow these steps:
+                - For any calculation, follow these steps:
                 1. Clearly state the mathematical problem to be solved
                 2. List all relevant values and their sources (page numbers, table numbers)
                 3. Show each calculation step with explanations
@@ -469,33 +487,33 @@ def main():
                 5. Provide intermediate results for complex calculations
                 6. Double-check calculations and show verification steps
                 7. Present the final result with appropriate context
-            - When performing calculations across multiple tables:
+                - When performing calculations across multiple tables:
                 * First organize all relevant data in a structured format
                 * Show relationships between different data sources
                 * Explain any assumptions or data transformations
                 * Validate consistency of units and formats before calculations
 
             3. **Visual Content Interpretation:**
-            - Describe data shown in charts and graphs with details on values, trends, and patterns
-            - Reference relevant axis labels, legends, and scales
-            - Extract numerical data from graphs for calculations when needed
-            - Show mathematical relationships between visual data points
-            - Summarize findings with direct connections to related text for holistic insight
+                - Describe data shown in charts and graphs with details on values, trends, and patterns
+                - Reference relevant axis labels, legends, and scales
+                - Extract numerical data from graphs for calculations when needed
+                - Show mathematical relationships between visual data points
+                - Summarize findings with direct connections to related text for holistic insight
 
             4. **Textual Information:**
-            - Cite sections and page numbers when quoting or referencing text
-            - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures
-            - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order
-            - Extract numerical information from text for calculations when relevant
+                - Cite sections and page numbers when quoting or referencing text
+                - Organize text data with original formatting, including bullet points, numbered lists, and paragraph structures
+                - Note any footnotes or cross-references, ensuring information is captured in its hierarchical order
+                - Extract numerical information from text for calculations when relevant
 
             **Response Format Guidelines:**
             - Identify source elements (table, text, or visual) at the beginning of responses
             - For tables: Display data in a table format for readability
             - For calculations:
-            * Use markdown code blocks for showing calculation steps
-            * Format mathematical equations clearly
-            * Include units in each step
-            * Show intermediate results
+                * Use markdown code blocks for showing calculation steps
+                * Format mathematical equations clearly
+                * Include units in each step
+                * Show intermediate results
             - For text: Retain PDF-style formatting, using bullets or lists as found in the document
             - For visuals: Summarize visual data with references to axes and legends
             - Include precise locations (page numbers, section numbers) for all referenced data
@@ -517,8 +535,7 @@ def main():
             You may respond to basic greetings, but for all other queries, strictly use information from the provided documents.
 
             {context}"""
-
-
+            
             chatPrompt = ChatPromptTemplate.from_messages(
                     [
                         ("system", system_prompt),
@@ -646,7 +663,12 @@ def main():
                 print(f"An unexpected error occurred: {e}")
                 return [], []
 
-        
+        st.session_state.chunking_strategy = st.sidebar.radio(
+            "Select Document Chunking Strategy",
+            ["Recursive","Semantic"],
+        )
+        print("st.session_state.chunking_strategy :",st.session_state.chunking_strategy)
+
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
         selected_file_path = f"selected/{email}/selected.txt"
