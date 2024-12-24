@@ -51,10 +51,7 @@ from datetime import datetime
 
 import pymupdf4llm
 from pathlib import Path
-
-import json 
 import time
-import sys
 
 def main():
 
@@ -95,8 +92,7 @@ def main():
         Returns:
         list: List of dictionaries containing image details.
         """
-        images = []
-        
+
         # Create directory for extracted images
         images_dir = os.path.join(user_folder, 'extracted_images')
         os.makedirs(images_dir, exist_ok=True)
@@ -110,27 +106,12 @@ def main():
                     margins=0,  # Remove margins
                     image_path=images_dir
                 )
-
-            # Process extracted images for metadata
-            for img_file in Path(images_dir).glob("*.png"):
-                img_filename = img_file.name
-                img_path = str(img_file)
-                file_size = os.path.getsize(img_path)
-                
-                # Collect image metadata
-                images.append({
-                    "filename": img_filename,
-                    "path": img_path,
-                    "file_size": file_size,
-                    "extraction_timestamp": datetime.now().isoformat()
-                })
-                
-            return images , parsed_data
+            return parsed_data
+        
         except Exception as e:
             print(f"Error extracting images from PDF: {e}")
-            
             return [], None
-        
+
     # OpenAI setup
     openai_api_key = os.getenv("OPENAI_API_KEY")
     llm = ChatOpenAI(
@@ -191,40 +172,9 @@ def main():
         if session_id not in st.session_state.store:
             st.session_state.store[session_id] = ChatMessageHistory()
         return st.session_state.store[session_id]    
-     
-    def load_or_parse_data(user_folder, file_path, file_name):
-        """
-        Load or parse PDF data into markdown format and save to file system.
-
-        Args:
-            user_folder (str): User's folder path
-            file_path (str): Full path to the PDF file
-            file_name (str): Name of the file
-
-        Returns:
-            parsed_data or None if parsing fails
-        """
-        try:
-            # Extract parsed data (ignoring images)
-            _, parsed_data = extract_images_from_pdf(file_path, user_folder)
-            print("length of parsed_data :",len(parsed_data))
-            if parsed_data is None:
-                st.error("Failed to parse PDF")
-                return None
-
-            # Write parsed_data to markdown file
-            markdown_path = os.path.join(user_folder, f"{file_name}.md")
-            with open(markdown_path, "w", encoding="utf-8") as f:
-                f.write(parsed_data)
-
-            print(f"Markdown file created: {markdown_path}")
-
-        except Exception as e:
-            st.error(f"An error occurred while loading or parsing the data: {e}")
-            return None
 
     # Create vector database for multiple files
-    def create_vector_database(user_folder, file_paths, selected_files):
+    def create_vector_database(user_folder, file_paths,selected_files):
         """
         Creates a vector database using document loaders and embeddings for multiple files.
 
@@ -234,59 +184,21 @@ def main():
         """
         try:
             print("Inside create_vector_database function")
-            text_splitter = SemanticChunker(embeddings, breakpoint_threshold_amount=95)   
-
+            text_splitter = SemanticChunker(embeddings, breakpoint_threshold_amount=85)
             for file_path, file_name in zip(file_paths, selected_files):
-                # Call the function to either load or parse the data
-                load_or_parse_data(user_folder, file_path, file_name)
-                                
-                # Convert to markdown
-                markdown_path = os.path.join(user_folder, f"{file_name}.md")
-
-                # Parsed Data length issue from this !!! UnstructuredMarkdownLoader
-                loader = UnstructuredMarkdownLoader(markdown_path, encoding="utf-8")
-                documents = loader.load()
-                print("length of document data :",len(documents[0].page_content))
-
-                # Split loaded documents into chunks
-                docs = text_splitter.split_documents(documents)
-                print("length of chunks :",len(docs))
-
-                # for idx, chunk in enumerate(docs, 1):
-                #     # Calculate chunk size in bytes
-                #     chunk_size_bytes = sys.getsizeof(chunk)
-
-                #     # Convert to kilobytes
-                #     chunk_size_kb = chunk_size_bytes / 1024
-
-                #     print(f"Chunk {idx}:")
-                #     print(f"Size: {chunk_size_bytes} bytes")
-                #     print(f"Size: {chunk_size_kb:.2f} KB")
-                #     print(f"Content:\n{chunk}\n{'-' * 40}")
-
-                # prepare texts and enhansed metadatas
-                texts = []
-                metadatas = []
-            
-                for i,doc in enumerate(docs):
-                    text = doc.page_content
-                    metadata = doc.metadata.copy()                    
-                    texts.append(text)
-                    metadatas.append(metadata)
-                
-                # print("texts",texts)
-                # print("metadatas",metadatas)
-                print("st.session_state.index_name", st.session_state.index_name)
-                
+                parsed_data = extract_images_from_pdf(file_path, user_folder)                
+                docs = []
+                text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
+                docs = text_splitter.split_text(parsed_data)
                 PineconeVectorStore.from_texts(
-                    texts, embeddings, index_name=st.session_state.index_name, metadatas=metadatas
+                    texts=docs, embedding=embeddings, index_name=st.session_state.index_name
                 )
-                print("Data upserted for {file_name} PDF file in Pinecone")
-
+                print(file_name+" upserted to Pinecone successfully")
             return
         except Exception as e:
             print(f"Error details: {str(e)}")
             st.error(f"An error occurred while creating the vector database: {e}")
+
 
     def process_selected_files(save_folder, email):
         try:
