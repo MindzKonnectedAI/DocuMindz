@@ -1,5 +1,5 @@
 #  UI components
-import pymupdf
+from langchain import hub
 import streamlit as st # streamlit module ( for building UI )
 import os # Operating System module
 from dotenv import load_dotenv  # .env file loading
@@ -7,11 +7,9 @@ from dotenv import load_dotenv  # .env file loading
 
 #  LLM and Chat Components
 from langchain_openai import ChatOpenAI # OpenAI's Chat Model
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 # PDF Processing 
-from llama_parse import LlamaParse #  LlamaParse for parsing PDF files
-from langchain_community.document_loaders import UnstructuredMarkdownLoader # Markdown file loader ( because we're using LlamaParse )
 from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
 from langchain_experimental.text_splitter import SemanticChunker
 
@@ -43,24 +41,12 @@ from dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
 
-
 from langchain.globals import set_verbose
-import joblib 
 import nest_asyncio # not sure if this was needed in PDFRAG app
 import yaml
 from yaml.loader import SafeLoader
-from datetime import datetime
-import cv2
-import camelot
-from PIL import Image
-import pytesseract
-import pdfplumber
-# import fitz
 
 import pymupdf4llm
-from pathlib import Path
-
-import json 
 import time
 
 def main():
@@ -298,21 +284,7 @@ def main():
     # generate response 
     def generate_response(prompt: str) :
         try:
-            contextualize_q_system_prompt = (
-                "Given a chat history and the latest user question "
-                "which might reference context in the chat history, "
-                "formulate a standalone question which can be understood "
-                "without the chat history. Do NOT answer the question, "
-                "just reformulate it if needed and otherwise return it as is."
-            )
-                
-            contextualize_q_prompt = ChatPromptTemplate.from_messages(
-                    [
-                        ("system", contextualize_q_system_prompt),
-                        MessagesPlaceholder("chat_history"),
-                        ("human", "{input}"),
-                    ]
-            )
+            contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
 
             # Reranker 
             def reRanker():
