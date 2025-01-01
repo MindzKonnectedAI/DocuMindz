@@ -182,6 +182,33 @@ def main():
             
             return [], None
         
+    def convert_image_array_to_documents(unique_xref_array):
+        """
+        Converts an array of image objects to LangChain Document instances.
+        
+        Args:
+            image_array: List of dictionaries containing 'xref', 'base64_image', and 'text'.
+
+        Returns:
+            List of LangChain Document instances.
+        """
+        documents = []
+        for item in unique_xref_array:
+            try:
+                # Extract fields from the item
+                page_content = item.get("base64_image", "")
+                metadata = {
+                    "xref": item.get("xref", ""),
+                    "surrounding_text": item.get("text", "")
+                }
+                # Create a Document instance
+                document = Document(page_content=page_content, metadata=metadata)
+                documents.append(document)
+            except Exception as e:
+                print(f"Error converting item to Document: {e}")
+        return documents
+
+        
     # OpenAI setup
     openai_api_key = os.getenv("OPENAI_API_KEY")
     llm = ChatOpenAI(
@@ -229,6 +256,9 @@ def main():
     ### Statefully manage chat history ###
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
+    
+    if "doc_store" not in st.session_state:
+        st.session_state.doc_store = InMemoryStore()
 
     selected_files = []
 
@@ -267,8 +297,11 @@ def main():
         model = ChatOpenAI(
         temperature=0, model_name="gpt-4o-mini")
         summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
+        # Extract content from Document objects
+        text_chunks = [doc.page_content for doc in docs]
+
         # Summarize text
-        text_summaries = summarize_chain.batch(docs, {"max_concurrency": 3}) #docs
+        text_summaries = summarize_chain.batch(text_chunks, {"max_concurrency": 3}) #docs
         return text_summaries
     
     # def create_image_summaries(image_docs):
@@ -313,21 +346,21 @@ def main():
     def generate_caption_for_image(base_img, query):
           messages = []
           system_role = {
-          "role": "system",
-          "content": '''You are a highly advanced multimodal assistant specializing in generating concise and accurate textual summaries for images. Your role is to analyze the visual content of images, including objects, scenes, actions, and emotions, and describe them in a way that captures the essence of the image.
+                "role": "system",
+                "content": '''You are a highly advanced multimodal assistant specializing in generating concise and accurate textual summaries for images. Your role is to analyze the visual content of images, including objects, scenes, actions, and emotions, and describe them in a way that captures the essence of the image.
 
-           Each summary should:
-           1. Be no longer than 2-3 sentences.
-           2. Focus on key elements in the image (e.g., objects, settings, interactions, and emotions).
-           3. Avoid unnecessary details or speculative information.
-           4. Use formal and neutral language suitable for embedding generation.
+                Each summary should:
+                1. Be no longer than 2-3 sentences.
+                2. Focus on key elements in the image (e.g., objects, settings, interactions, and emotions).
+                3. Avoid unnecessary details or speculative information.
+                4. Use formal and neutral language suitable for embedding generation.
 
-           Your output will be used to generate embeddings for semantic search and vector storage, so ensure the summaries are informative and contextually rich.'''
-}
+                Your output will be used to generate embeddings for semantic search and vector storage, so ensure the summaries are informative and contextually rich.'''
+            }
           messages.append(system_role)
           messages.append({"role": "user", "content": f"this is the text... {query}"})
           client = Client(api_key=os.getenv("OPENAI_API_KEY"))
-          print ('messages', messages)
+        #   print ('messages', messages)
           response = client.chat.completions.create(
              model="gpt-4o-mini",
              messages=[*messages,
@@ -397,32 +430,36 @@ def main():
                 if(st.session_state.chunking_strategy=="Recursive"):
                     ## Recursive Chunking 
                     recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
-                    docs = recursive_text_splitter.split_text(parsed_data)
+                    chunked_texts = recursive_text_splitter.split_text(parsed_data)
                 
                 elif(st.session_state.chunking_strategy=="Semantic"):
                     ## Semantic Chunking
                     semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
-                    docs = semantic_text_splitter.split_text(parsed_data)
+                    chunked_texts = semantic_text_splitter.split_text(parsed_data)
+
+                # Convert chunks to LangChain Document objects
+                docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
+
                 # print ('Docs', docs)
                 text_summaries= create_text_summaries(docs) #-> return text summaries 
                 print ('length of text summary', len(text_summaries)) 
-                print ('this is text summary',text_summaries) 
+                # print ('this is text summary',text_summaries) 
 
                 image_summaries= create_image_summaries(unique_xref_array) #-> return image summaries
                 print ('length of image summary', len(image_summaries))
-                print ('this is image summary', image_summaries)
+                # print ('this is image summary', image_summaries)
 
                 # Pinecone setup (for vector storage)
                 
                 vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
                 # The storage layer for the parent documents
-                store = InMemoryStore()
+                # store = InMemoryStore()
                 id_key = "doc_id"
 
                 # The retriever (empty to start)
                 retriever = MultiVectorRetriever(
                     vectorstore=vectorstore,
-                    docstore=store,
+                    docstore=st.session_state.doc_store,
                     id_key=id_key,
                 )
                 # Add texts
@@ -433,21 +470,17 @@ def main():
                 retriever.vectorstore.add_documents(summary_texts)
                 retriever.docstore.mset(list(zip(doc_ids, docs)))
 
-                final_array = map_image_keys(unique_xref_array)
-                print(final_array)  # Output: ['image1.jpg', 'image2.png', 'image3.gif']
-
+                # final_array = map_image_keys(unique_xref_array)
+                # print(final_array)  # Output: ['image1.jpg', 'image2.png', 'image3.gif']
+                
+                final_array = convert_image_array_to_documents(unique_xref_array)
                 # Add image summaries
                 img_ids = [str(uuid.uuid4()) for _ in final_array]
                 summary_img = [
                     Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
                 ]
                 retriever.vectorstore.add_documents(summary_img)
-                retriever.docstore.mset(list(zip(img_ids, final_array)))
-                                
-                # PineconeVectorStore.from_texts(
-                #     texts=docs, embedding=embeddings, index_name=st.session_state.index_name
-                # )
-
+                retriever.docstore.mset(list(zip(img_ids, final_array)))      
                 print(file_name+" upserted to Pinecone successfully")
             return
         except Exception as e:
@@ -530,11 +563,17 @@ def main():
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
                 vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                id_key = "doc_id"
+
+                retriever = MultiVectorRetriever(
+                    vectorstore=vectorStore,
+                    docstore=st.session_state.doc_store,
+                    id_key=id_key,
+                )
+
                 compression_retriever = ContextualCompressionRetriever(
                     base_compressor=compressor,
-                    base_retriever=vectorStore.as_retriever(
-                        search_kwargs={"k": 5},
-                    ),
+                    base_retriever=retriever,
                 )
                 return compression_retriever
 
