@@ -1,4 +1,5 @@
 #  UI components
+import io
 from langchain import hub
 import streamlit as st # streamlit module ( for building UI )
 import os # Operating System module
@@ -6,7 +7,7 @@ from dotenv import load_dotenv  # .env file loading
 
 
 #  LLM and Chat Components
-from langchain_openai import ChatOpenAI # OpenAI's Chat Model
+from langchain_openai import ChatOpenAI, OpenAI # OpenAI's Chat Model
 from langchain_core.messages import HumanMessage, AIMessage
 
 # PDF Processing 
@@ -48,6 +49,19 @@ from yaml.loader import SafeLoader
 
 import pymupdf4llm
 import time
+import base64
+from PIL import Image
+import fitz
+from langchain_core.output_parsers import StrOutputParser
+
+from openai import Client
+import uuid
+# from pinecone import Pinecone, ServerlessSpec
+from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone library
+from langchain.storage import InMemoryStore
+from langchain.schema.document import Document
+from langchain.embeddings import OpenAIEmbeddings
+from langchain.retrievers.multi_vector import MultiVectorRetriever
 
 def main():
 
@@ -78,6 +92,59 @@ def main():
         config['cookie']['expiry_days'],
     )
 
+    #New addition 1
+    def extract_images_and_text(file_path):
+        doc = fitz.open(file_path)
+        images_and_text = []
+
+        for page in doc:
+            text = page.get_text()
+            # print("text :",text)
+            image_list = page.get_images(full=True)
+            # print("image_list :",image_list)
+            for img_index, img in enumerate(image_list):
+                xref = img[0]
+                base_image = doc.extract_image(xref)
+                image_bytes = base_image["image"]
+
+                image = Image.open(io.BytesIO(image_bytes))
+                buffered = io.BytesIO()
+                image.save(buffered, format="PNG")
+                img_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                # words = text.split()
+                # text_before_image = " ".join(words[-200:]) if len(words) > 200 else text
+
+                # page text becomes the image context
+                text_before_image = text
+
+                images_and_text.append({
+                  "xref":xref,
+                  "base64_image": img_base64,
+                  "text": text_before_image
+            })
+            # print("xref :",xref)
+            # print("image ",img_base64)
+            # print("text ",text_before_image)
+            # print("-"*50)
+
+
+    
+        return images_and_text #as it is
+    
+ 
+    # Create a new array with unique xrefs
+    def get_unique_xref_images_and_text(pdf_image_and_text_array):
+        unique_xref_dict = {}
+        unique_xref_array = []
+
+        for entry in pdf_image_and_text_array:
+          xref = entry["xref"]
+          if xref not in unique_xref_dict:
+            unique_xref_dict[xref] = entry
+            unique_xref_array.append(entry) #as it is
+
+        return unique_xref_array
+    
     # Do not Disturb
     def extract_images_from_pdf(file_path, user_folder):
         """ 
@@ -103,9 +170,13 @@ def main():
                     margins=0,  # Remove margins
                     image_path=images_dir
                 )
+            pdf_image_and_text_array= extract_images_and_text(file_path) #->pdf_image_and_text_array 
+            unique_xref_array= get_unique_xref_images_and_text(pdf_image_and_text_array) #-> return unique_xref_array
 
 
-            return parsed_data
+            return parsed_data, unique_xref_array
+        #return parsed_data, unique_xref_array
+        
         except Exception as e:
             print(f"Error extracting images from PDF: {e}")
             
@@ -153,7 +224,7 @@ def main():
 
     # Initialize chunking_strategy if not in session state
     if "chunking_strategy" not in st.session_state:
-        st.session_state.chunking_strategy = "Recursive"
+        st.session_state.chunking_strategy = "Semantic"
 
     ### Statefully manage chat history ###
     if "chat_history" not in st.session_state:
@@ -174,8 +245,136 @@ def main():
     def get_session_history(session_id: str) -> BaseChatMessageHistory:
         if session_id not in st.session_state.store:
             st.session_state.store[session_id] = ChatMessageHistory()
-        return st.session_state.store[session_id]    
+        return st.session_state.store[session_id]   
+    
+    def create_text_summaries(docs):
+        print('inside text_summaries')
+        # print ('Docs', docs)
+        prompt_text = """
+          You are an assistant tasked with summarizing tables and text.
+          Give a concise summary of the table or text.
 
+          Respond only with the summary, no additionnal comment.
+          Do not start your message by saying "Here is a summary" or anything like that.
+          Just give the summary as it is.
+
+          Table or text chunk: {element} 
+
+                     """
+        prompt = ChatPromptTemplate.from_template(prompt_text)
+
+        # Summary chain
+        model = ChatOpenAI(
+        temperature=0, model_name="gpt-4o-mini")
+        summarize_chain = {"element": lambda x: x} | prompt | model | StrOutputParser()
+        # Summarize text
+        text_summaries = summarize_chain.batch(docs, {"max_concurrency": 3}) #docs
+        return text_summaries
+    
+    # def create_image_summaries(image_docs):
+    #     print('inside image_summaries')
+    #     print('Image Docs:', image_docs)
+        
+    #     # Template for generating image captions
+    #     prompt_image = """
+    #         You are a highly advanced multimodal assistant specializing in generating concise and accurate textual summaries for images.
+    #         Your role is to analyze the visual content of images, including objects, scenes, actions, and emotions, and describe them in a way that captures the essence of the image.
+
+    #         Each summary should:
+    #         1. Be no longer than 2-3 sentences.
+    #         2. Focus on key elements in the image (e.g., objects, settings, interactions, and emotions).
+    #         3. Avoid unnecessary details or speculative information.
+    #         4. Use formal and neutral language suitable for embedding generation.
+
+    #         Image data: {base64_image}
+    #         Context text: {text}
+    #     """
+    #     prompt = ChatPromptTemplate.from_template(prompt_image)
+
+    #     # Summary chain
+    #     model = ChatOpenAI(
+    #         temperature=0.5, model_name="gpt-4o-mini")
+    #     summarize_chain = {
+    #         "base64_image": lambda x: x["base64_image"],
+    #         "text": lambda x: x["text"],
+    #     } | prompt | model | StrOutputParser()
+
+    #     # Summarize images
+    #     # image_summaries = summarize_chain.batch(image_docs)
+    #     # print('image_summaries:', image_summaries)
+    #     # return image_summaries
+    #     image_summaries=[]
+    #     batch_size = 5  # Adjust batch size to fit within token limits
+    #     for i in range(0, len(image_docs), batch_size):
+    #         batch = image_docs[i:i + batch_size]
+    #         summaries = summarize_chain.batch(batch, {"max_concurrency": 2})  # Reduce concurrency if needed
+    #         image_summaries.extend(summaries)
+
+    def generate_caption_for_image(base_img, query):
+          messages = []
+          system_role = {
+          "role": "system",
+          "content": '''You are a highly advanced multimodal assistant specializing in generating concise and accurate textual summaries for images. Your role is to analyze the visual content of images, including objects, scenes, actions, and emotions, and describe them in a way that captures the essence of the image.
+
+           Each summary should:
+           1. Be no longer than 2-3 sentences.
+           2. Focus on key elements in the image (e.g., objects, settings, interactions, and emotions).
+           3. Avoid unnecessary details or speculative information.
+           4. Use formal and neutral language suitable for embedding generation.
+
+           Your output will be used to generate embeddings for semantic search and vector storage, so ensure the summaries are informative and contextually rich.'''
+}
+          messages.append(system_role)
+          messages.append({"role": "user", "content": f"this is the text... {query}"})
+          client = Client(api_key=os.getenv("OPENAI_API_KEY"))
+          print ('messages', messages)
+          response = client.chat.completions.create(
+             model="gpt-4o-mini",
+             messages=[*messages,
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/jpeg;base64,{base_img}",
+                            "detail": "high"
+                           }
+                       }
+                   ]
+               }
+           ],
+           temperature=0.5,
+           top_p=0.9,
+           presence_penalty=0.6,
+           frequency_penalty=0.5
+    )
+          assistant_message = response.choices[0].message.content
+          messages.append({"role": "assistant", "content": assistant_message})
+          return assistant_message       
+
+    def create_image_summaries(unique_xref_array):
+        print('inside image_summaries')
+        image_summaries = []
+        for item in unique_xref_array:
+           caption = generate_caption_for_image(item['base64_image'], item['text'])
+           image_summaries.append(caption)
+        return image_summaries
+
+    def map_image_keys(array_of_dicts):
+        """
+        Maps an array of dictionaries to an array of strings containing the values of the 'image' key.
+
+        Parameters:
+            array_of_dicts (list): A list of dictionaries.
+
+        Returns:
+            list: A list of strings corresponding to the values of the 'image' key in each dictionary.
+        """
+        return [d.get('base64_image', '') for d in array_of_dicts]
+
+    
+    
     # Create vector database for multiple files
     def create_vector_database(user_folder, file_paths,selected_files):
         """
@@ -190,8 +389,9 @@ def main():
             
             for file_path, file_name in zip(file_paths, selected_files):
                 
-                parsed_data = extract_images_from_pdf(file_path, user_folder)
-
+                parsed_data, unique_xref_array = extract_images_from_pdf(file_path, user_folder)
+                # print ('parsed_Data', parsed_data)
+                # print ('unique_xref_Array', unique_xref_array)
                 docs = []
 
                 if(st.session_state.chunking_strategy=="Recursive"):
@@ -203,10 +403,50 @@ def main():
                     ## Semantic Chunking
                     semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
                     docs = semantic_text_splitter.split_text(parsed_data)
+                # print ('Docs', docs)
+                text_summaries= create_text_summaries(docs) #-> return text summaries 
+                print ('length of text summary', len(text_summaries)) 
+                print ('this is text summary',text_summaries) 
+
+                image_summaries= create_image_summaries(unique_xref_array) #-> return image summaries
+                print ('length of image summary', len(image_summaries))
+                print ('this is image summary', image_summaries)
+
+                # Pinecone setup (for vector storage)
                 
-                PineconeVectorStore.from_texts(
-                    texts=docs, embedding=embeddings, index_name=st.session_state.index_name
+                vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                # The storage layer for the parent documents
+                store = InMemoryStore()
+                id_key = "doc_id"
+
+                # The retriever (empty to start)
+                retriever = MultiVectorRetriever(
+                    vectorstore=vectorstore,
+                    docstore=store,
+                    id_key=id_key,
                 )
+                # Add texts
+                doc_ids = [str(uuid.uuid4()) for _ in docs]
+                summary_texts = [
+                    Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
+                ]
+                retriever.vectorstore.add_documents(summary_texts)
+                retriever.docstore.mset(list(zip(doc_ids, docs)))
+
+                final_array = map_image_keys(unique_xref_array)
+                print(final_array)  # Output: ['image1.jpg', 'image2.png', 'image3.gif']
+
+                # Add image summaries
+                img_ids = [str(uuid.uuid4()) for _ in final_array]
+                summary_img = [
+                    Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
+                ]
+                retriever.vectorstore.add_documents(summary_img)
+                retriever.docstore.mset(list(zip(img_ids, final_array)))
+                                
+                # PineconeVectorStore.from_texts(
+                #     texts=docs, embedding=embeddings, index_name=st.session_state.index_name
+                # )
 
                 print(file_name+" upserted to Pinecone successfully")
             return
@@ -509,7 +749,7 @@ def main():
 
         st.session_state.chunking_strategy = st.sidebar.radio(
             "Select Document Chunking Strategy",
-            ["Recursive","Semantic"],
+            ["Semantic","Recursive"],
         )
         print("st.session_state.chunking_strategy :",st.session_state.chunking_strategy)
 

@@ -9,7 +9,7 @@ load_dotenv()
 
 # In case you want to use MongoDB Atlas instead of MongoDB Compass
 password = os.getenv("DB_PASSWORD")
-connection_string = "mongodb+srv://gaurav:"+password+"@cluster0.g3cuu.mongodb.net/new?retryWrites=true&w=majority"
+connection_string = "mongodb+srv://shikharcrpf:PE9BVvFUnIkFT9ya@cluster0.myqwb.mongodb.net/"
 client = pymongo.MongoClient(connection_string)
 
 db = client.new
