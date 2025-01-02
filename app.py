@@ -440,7 +440,8 @@ def main():
                     chunked_texts = semantic_text_splitter.split_text(parsed_data)
 
                 # Convert chunks to LangChain Document objects
-                docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
+                # docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
+                docs = [Document(page_content=text) for text in chunked_texts]
 
                 text_summaries= create_text_summaries(docs) #-> return text summaries 
                 print ('length of text summary', len(text_summaries)) 
@@ -565,8 +566,10 @@ def main():
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
                 vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                
                 id_key = "doc_id"
-                docstore = MongoDBByteStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+                docstore = MongoDBStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+                
                 retriever = MultiVectorRetriever(
                     vectorstore=vectorStore,
                     docstore=docstore,
@@ -577,6 +580,7 @@ def main():
                     base_compressor=compressor,
                     base_retriever=retriever,
                 )
+
                 return compression_retriever
 
             compression_retriever = reRanker()
