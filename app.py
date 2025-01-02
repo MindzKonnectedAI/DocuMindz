@@ -62,8 +62,10 @@ from langchain.storage import InMemoryStore
 from langchain.schema.document import Document
 from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers.multi_vector import MultiVectorRetriever
+from langchain_community.storage import MongoDBByteStore,MongoDBStore
 
 def main():
+    mongo_conn_str = "mongodb+srv://gaurav:A4HfPTL0Vk0WdXUu@cluster0.g3cuu.mongodb.net/new?retryWrites=true&w=majority"
 
     # Page Configuration
     st.set_page_config("DocuMindz",":bookmark_tabs:")
@@ -257,8 +259,8 @@ def main():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
-    if "doc_store" not in st.session_state:
-        st.session_state.doc_store = InMemoryStore()
+    # if "doc_store" not in st.session_state:
+    #     st.session_state.doc_store = MongoDBByteStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
 
     selected_files = []
 
@@ -440,7 +442,6 @@ def main():
                 # Convert chunks to LangChain Document objects
                 docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
 
-                # print ('Docs', docs)
                 text_summaries= create_text_summaries(docs) #-> return text summaries 
                 print ('length of text summary', len(text_summaries)) 
                 # print ('this is text summary',text_summaries) 
@@ -450,16 +451,17 @@ def main():
                 # print ('this is image summary', image_summaries)
 
                 # Pinecone setup (for vector storage)
-                
                 vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                
                 # The storage layer for the parent documents
-                # store = InMemoryStore()
                 id_key = "doc_id"
+
+                docstore = MongoDBStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
 
                 # The retriever (empty to start)
                 retriever = MultiVectorRetriever(
                     vectorstore=vectorstore,
-                    docstore=st.session_state.doc_store,
+                    docstore=docstore,
                     id_key=id_key,
                 )
                 # Add texts
@@ -470,10 +472,10 @@ def main():
                 retriever.vectorstore.add_documents(summary_texts)
                 retriever.docstore.mset(list(zip(doc_ids, docs)))
 
-                # final_array = map_image_keys(unique_xref_array)
-                # print(final_array)  # Output: ['image1.jpg', 'image2.png', 'image3.gif']
+                final_array = map_image_keys(unique_xref_array)
                 
                 final_array = convert_image_array_to_documents(unique_xref_array)
+
                 # Add image summaries
                 img_ids = [str(uuid.uuid4()) for _ in final_array]
                 summary_img = [
@@ -564,10 +566,10 @@ def main():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
                 vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
                 id_key = "doc_id"
-
+                docstore = MongoDBByteStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
                 retriever = MultiVectorRetriever(
                     vectorstore=vectorStore,
-                    docstore=st.session_state.doc_store,
+                    docstore=docstore,
                     id_key=id_key,
                 )
 
