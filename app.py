@@ -65,7 +65,7 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain_community.storage import MongoDBStore
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 import re
-
+from operator import itemgetter
 
 def main():
     mongo_conn_str = "mongodb+srv://gaurav:A4HfPTL0Vk0WdXUu@cluster0.g3cuu.mongodb.net/new?retryWrites=true&w=majority"
@@ -258,12 +258,8 @@ def main():
 
         docs_by_type = kwargs["context"]
         user_question = kwargs["question"]
-        history = kwargs["history"]
+        chat_history = kwargs["chat_history"]
 
-        # Convert history to text format
-        formatted_history = "\n".join(
-            f"{'Human' if isinstance(message, HumanMessage) else 'AI'}: {message.content}" for message in history
-        )
 
         context_text = ""
         if len(docs_by_type["texts"]) > 0:
@@ -272,13 +268,81 @@ def main():
 
         # construct prompt with context (including images)
         prompt_template = f"""
-        Below is the Chat History , Context and Question for the AI to answer the question.
-        Chat History: {formatted_history}
-        \n\n
-        Answer the question based on the above Chat History and the following context, which can include text, tables, and the below image.
-        If you don't find the answer in the context , please say 'This information is not available in the provided PDF documents.'
-        Context: {context_text}
+        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+
+        When responding to questions, adhere to the following guidelines:
+
+            1. Table Data Analysis
+            - Extract and format numerical values and relationships into clear, tabular layouts
+            - Always:
+                * Specify table titles and numbers for source identification
+                * Include footnotes or special notations to preserve context
+            - For tables spread across multiple pages:
+                * Clearly indicate when a table spans multiple pages
+                * Consolidate the data into a single cohesive format, ensuring no information is missed
+                * Reference the page range where the table appears for clarity
+            - For mathematical operations involving table data:
+                * Present the relevant table data
+                * Show each calculation step clearly with labeled subtotals and intermediate results
+                * Validate results by cross-referencing multiple tables if applicable
+
+            2. Mathematical Reasoning and Calculations
+            Steps to Perform Calculations:
+            - Clearly define the mathematical problem or objective
+            - List all relevant data with precise source references (e.g., page numbers, table numbers)
+            - Show every calculation step with detailed explanations using proper notation and units
+            - Validate consistency of units and formats before proceeding
+            - Verify results through cross-checking or secondary calculations
+            - Present the final answer with appropriate context
+
+            For calculations across multiple tables:
+            - Organize all relevant data in a structured format
+            - Show relationships between different data sources
+            - Clearly explain assumptions and data transformations
+
+            3. Visual Content Interpretation
+            Analyze charts and graphs:
+            - Describe data values, trends, and patterns, referencing axes, legends, and scales
+            - Extract numerical data as needed for calculations
+            - Summarize findings by connecting visual data with related text or tables
+
+            4. Textual Information
+            - Reference sections and page numbers when quoting or summarizing text
+            - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+            - Capture hierarchical details, including footnotes and cross-references
+            - Extract numerical information for calculations when relevant
+
+            Response Format Guidelines:
+            - Source Identification: Start by identifying data sources (e.g., table, text, visual)
+            - Tables: Present data in a clean table format for readability
+            - Calculations:
+                * Use markdown code blocks for showing calculation steps
+                * Clearly format equations with intermediate results and units
+            - Text: Preserve PDF-style formatting (e.g., bullets, lists)
+            - Visuals: Summarize data with references to legends, axes, and scales
+            - Locations: Cite exact locations (page numbers, section titles) for all referenced information
+            - Cross-Referencing: Connect related document elements for a cohesive response
+            - Data Integrity: Maintain the original precision, units, and context of all data
+
+            Mathematical Operations Format:
+            Step 1: Define the objective
+            Step 2: List source data with references
+            Step 3: Show the calculation setup
+            Step 4: Perform step-by-step operations
+            Step 5: Verify results
+            Step 6: Present the final result with context
+
+            Error Handling:
+            If the required information is not found in the documents, respond with:
+            "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+
+            For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+
+            You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+
         Question: {user_question}
+        Context: {context_text}
         """
 
         prompt_content = [{"type": "text", "text": prompt_template}]
@@ -295,6 +359,7 @@ def main():
         return ChatPromptTemplate.from_messages(
             [
                 HumanMessage(content=prompt_content),
+                MessagesPlaceholder("chat_history")
             ]
         )
 
@@ -655,80 +720,80 @@ def main():
     #                 llm, compression_retriever, contextualize_q_prompt
     #         )
 
-    #         system_prompt = """You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-    #         structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+            # system_prompt = """You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+            # structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
 
-    #         When responding to questions, adhere to the following guidelines:
+            # When responding to questions, adhere to the following guidelines:
 
-    #         1. Table Data Analysis
-    #         - Extract and format numerical values and relationships into clear, tabular layouts
-    #         - Always:
-    #             * Specify table titles and numbers for source identification
-    #             * Include footnotes or special notations to preserve context
-    #         - For tables spread across multiple pages:
-    #             * Clearly indicate when a table spans multiple pages
-    #             * Consolidate the data into a single cohesive format, ensuring no information is missed
-    #             * Reference the page range where the table appears for clarity
-    #         - For mathematical operations involving table data:
-    #             * Present the relevant table data
-    #             * Show each calculation step clearly with labeled subtotals and intermediate results
-    #             * Validate results by cross-referencing multiple tables if applicable
+            # 1. Table Data Analysis
+            # - Extract and format numerical values and relationships into clear, tabular layouts
+            # - Always:
+            #     * Specify table titles and numbers for source identification
+            #     * Include footnotes or special notations to preserve context
+            # - For tables spread across multiple pages:
+            #     * Clearly indicate when a table spans multiple pages
+            #     * Consolidate the data into a single cohesive format, ensuring no information is missed
+            #     * Reference the page range where the table appears for clarity
+            # - For mathematical operations involving table data:
+            #     * Present the relevant table data
+            #     * Show each calculation step clearly with labeled subtotals and intermediate results
+            #     * Validate results by cross-referencing multiple tables if applicable
 
-    #         2. Mathematical Reasoning and Calculations
-    #         Steps to Perform Calculations:
-    #         - Clearly define the mathematical problem or objective
-    #         - List all relevant data with precise source references (e.g., page numbers, table numbers)
-    #         - Show every calculation step with detailed explanations using proper notation and units
-    #         - Validate consistency of units and formats before proceeding
-    #         - Verify results through cross-checking or secondary calculations
-    #         - Present the final answer with appropriate context
+            # 2. Mathematical Reasoning and Calculations
+            # Steps to Perform Calculations:
+            # - Clearly define the mathematical problem or objective
+            # - List all relevant data with precise source references (e.g., page numbers, table numbers)
+            # - Show every calculation step with detailed explanations using proper notation and units
+            # - Validate consistency of units and formats before proceeding
+            # - Verify results through cross-checking or secondary calculations
+            # - Present the final answer with appropriate context
 
-    #         For calculations across multiple tables:
-    #         - Organize all relevant data in a structured format
-    #         - Show relationships between different data sources
-    #         - Clearly explain assumptions and data transformations
+            # For calculations across multiple tables:
+            # - Organize all relevant data in a structured format
+            # - Show relationships between different data sources
+            # - Clearly explain assumptions and data transformations
 
-    #         3. Visual Content Interpretation
-    #         Analyze charts and graphs:
-    #         - Describe data values, trends, and patterns, referencing axes, legends, and scales
-    #         - Extract numerical data as needed for calculations
-    #         - Summarize findings by connecting visual data with related text or tables
+            # 3. Visual Content Interpretation
+            # Analyze charts and graphs:
+            # - Describe data values, trends, and patterns, referencing axes, legends, and scales
+            # - Extract numerical data as needed for calculations
+            # - Summarize findings by connecting visual data with related text or tables
 
-    #         4. Textual Information
-    #         - Reference sections and page numbers when quoting or summarizing text
-    #         - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
-    #         - Capture hierarchical details, including footnotes and cross-references
-    #         - Extract numerical information for calculations when relevant
+            # 4. Textual Information
+            # - Reference sections and page numbers when quoting or summarizing text
+            # - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+            # - Capture hierarchical details, including footnotes and cross-references
+            # - Extract numerical information for calculations when relevant
 
-    #         Response Format Guidelines:
-    #         - Source Identification: Start by identifying data sources (e.g., table, text, visual)
-    #         - Tables: Present data in a clean table format for readability
-    #         - Calculations:
-    #             * Use markdown code blocks for showing calculation steps
-    #             * Clearly format equations with intermediate results and units
-    #         - Text: Preserve PDF-style formatting (e.g., bullets, lists)
-    #         - Visuals: Summarize data with references to legends, axes, and scales
-    #         - Locations: Cite exact locations (page numbers, section titles) for all referenced information
-    #         - Cross-Referencing: Connect related document elements for a cohesive response
-    #         - Data Integrity: Maintain the original precision, units, and context of all data
+            # Response Format Guidelines:
+            # - Source Identification: Start by identifying data sources (e.g., table, text, visual)
+            # - Tables: Present data in a clean table format for readability
+            # - Calculations:
+            #     * Use markdown code blocks for showing calculation steps
+            #     * Clearly format equations with intermediate results and units
+            # - Text: Preserve PDF-style formatting (e.g., bullets, lists)
+            # - Visuals: Summarize data with references to legends, axes, and scales
+            # - Locations: Cite exact locations (page numbers, section titles) for all referenced information
+            # - Cross-Referencing: Connect related document elements for a cohesive response
+            # - Data Integrity: Maintain the original precision, units, and context of all data
 
-    #         Mathematical Operations Format:
-    #         Step 1: Define the objective
-    #         Step 2: List source data with references
-    #         Step 3: Show the calculation setup
-    #         Step 4: Perform step-by-step operations
-    #         Step 5: Verify results
-    #         Step 6: Present the final result with context
+            # Mathematical Operations Format:
+            # Step 1: Define the objective
+            # Step 2: List source data with references
+            # Step 3: Show the calculation setup
+            # Step 4: Perform step-by-step operations
+            # Step 5: Verify results
+            # Step 6: Present the final result with context
 
-    #         Error Handling:
-    #         If the required information is not found in the documents, respond with:
-    #         "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+            # Error Handling:
+            # If the required information is not found in the documents, respond with:
+            # "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
 
-    #         For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+            # For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
 
-    #         You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+            # You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
-    #         {context}"""
+            # {context}"""
 
 
     #         chatPrompt = ChatPromptTemplate.from_messages(
@@ -760,6 +825,7 @@ def main():
         # generate response 
     def generate_response(prompt: str) :
         try:
+            contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
             # Reranker 
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
@@ -783,12 +849,14 @@ def main():
 
             compression_retriever = reRanker()
 
-            historyState = st.session_state.chat_history
+            history_aware_retriever = create_history_aware_retriever(
+                llm, compression_retriever, contextualize_q_prompt
+            )
 
             chain_with_sources = {
-                "context": compression_retriever | RunnableLambda(parse_docs),
-                "question": RunnablePassthrough(),
-                "history": RunnableLambda(lambda input: historyState), 
+                "context": history_aware_retriever | RunnableLambda(parse_docs), # {"images": b64_images, "texts": text_contents}
+                "question": itemgetter("input"),
+                "chat_history": itemgetter("chat_history"), 
             } | RunnablePassthrough().assign(
                 response=(
                     RunnableLambda(build_prompt)
@@ -797,7 +865,7 @@ def main():
                 )
             )
 
-            answer = chain_with_sources.invoke(prompt)
+            answer = chain_with_sources.invoke({"input":prompt,"chat_history":st.session_state.chat_history})
             for image in answer['context']['images']:
                 display_base64_image_in_streamlit(image)
             return answer["response"]
