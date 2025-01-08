@@ -68,8 +68,12 @@ import re
 from operator import itemgetter
 
 def main():
-    mongo_conn_str = "mongodb+srv://gaurav:A4HfPTL0Vk0WdXUu@cluster0.g3cuu.mongodb.net/new?retryWrites=true&w=majority"
+    # defaults
+    load_dotenv(override=True)
+    nest_asyncio.apply() # not sure if this was needed in PDFRAG app
+    set_verbose(True) # removed the verbose warning by this 
 
+    MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
     # Page Configuration
     st.set_page_config("DocuMindz",":bookmark_tabs:")
 
@@ -80,11 +84,6 @@ def main():
     with open('./config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
     
-    # defaults
-    load_dotenv(override=True)
-    nest_asyncio.apply() # not sure if this was needed in PDFRAG app
-    set_verbose(True) # removed the verbose warning by this 
-
     # clear console function
     def cls():
         os.system('cls' if os.name=='nt' else 'clear')
@@ -414,7 +413,7 @@ def main():
         st.session_state.chat_history = []
     
     # if "doc_store" not in st.session_state:
-    #     st.session_state.doc_store = MongoDBByteStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+    #     st.session_state.doc_store = MongoDBByteStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
 
     selected_files = []
 
@@ -588,7 +587,7 @@ def main():
                 # The storage layer for the parent documents
                 id_key = "doc_id"
 
-                docstore = MongoDBStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+                docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
 
                 # The retriever (empty to start)
                 retriever = MultiVectorRetriever(
@@ -699,7 +698,7 @@ def main():
     #             vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
                 
     #             id_key = "doc_id"
-    #             docstore = MongoDBStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+    #             docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
                 
     #             retriever = MultiVectorRetriever(
     #                 vectorstore=vectorStore,
@@ -832,7 +831,7 @@ def main():
                 vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
                 
                 id_key = "doc_id"
-                docstore = MongoDBStore(mongo_conn_str, db_name="new",collection_name=st.session_state.index_name)
+                docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
                 
                 retriever = MultiVectorRetriever(
                     vectorstore=vectorStore,
