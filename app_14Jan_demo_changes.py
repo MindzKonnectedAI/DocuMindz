@@ -68,6 +68,17 @@ import re
 from operator import itemgetter
 
 def main():
+    # Function to convert local image to base64
+    def image_to_base64(image_path):
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+
+    # Path to your local image
+    image_path = 'images/company-logo.png'
+
+    # Get the base64 string of the image
+    image_base64 = image_to_base64(image_path)
+
     # defaults
     load_dotenv(override=True)
     nest_asyncio.apply() # not sure if this was needed in PDFRAG app
@@ -881,10 +892,110 @@ def main():
             collection.insert_one( {'password': Hasher([password]).generate()[0],'email':email,'name':name } )
         except Exception as e :
             st.error(e)
+            
+    # custom_html = """
+    # <div class="banner">
+    #     <img src="https://mindzkonnected.com/wp-content/uploads/2022/11/Logoimg.jpg" alt="Company Logo">
+    # </div>
+    # <style>
+    #     .banner {
+    #         width: 160%;
+    #         height: 200px;
+    #         overflow: hidden;
+    #     }
+    #     .banner img {
+    #         object-fit: contain;
+    #     }
+    # </style>
+    # """
+    
+    # Display the custom HTML
+    # st.components.v1.html(custom_html)
+
+    # JS code to modify te decoration on top
+    # st.components.v1.html(
+    #     """
+    #     <script>
+    #     // Modify the decoration on top to reuse as a banner
+
+    #     // Locate elements
+    #     var decoration = window.parent.document.querySelector('[data-testid="stDecoration"]');
+    #     var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+
+    #     // Check if the image is already set
+    #     if (decoration && !decoration.classList.contains("custom-banner")) {
+    #         // Add a custom class to prevent duplicate modifications
+    #         decoration.classList.add("custom-banner");
+
+    #         // Observe sidebar size
+    #         function outputsize() {
+    #             decoration.style.left = `${sidebar.offsetWidth}px`;
+    #         }
+
+    #         new ResizeObserver(outputsize).observe(sidebar);
+
+    #         // Adjust sizes
+    #         outputsize();
+    #         decoration.style.height = "6.0rem";
+    #         decoration.style.right = "45px";
+
+    #         // Adjust image decorations
+    #         decoration.style.backgroundImage = "url(https://mindzkonnected.com/wp-content/uploads/2022/11/Logoimg.jpg)";
+    #         decoration.style.backgroundSize = "contain";
+    #         decoration.style.backgroundRepeat = "no-repeat";
+    #     }
+    #     </script>        
+    #     """, 
+    #     width=0, 
+    #     height=0
+    # )
+
+
+
+    # HTML code with base64 image
+    # st.components.v1.html(
+    #     """
+    #     <script>
+    #     // Modify the decoration on top to reuse as a banner
+
+    #     // Locate elements
+    #     var decoration = window.parent.document.querySelector('[data-testid="stDecoration"]');
+    #     var sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+
+    #     // Check if the image is already set
+    #     if (decoration && !decoration.classList.contains("custom-banner")) {
+    #         // Add a custom class to prevent duplicate modifications
+    #         decoration.classList.add("custom-banner");
+
+    #         // Observe sidebar size
+    #         function outputsize() {{
+    #             decoration.style.left = `${{sidebar.offsetWidth}}px`;
+    #         }}
+
+    #         new ResizeObserver(outputsize).observe(sidebar);
+
+    #         // Adjust sizes
+    #         outputsize();
+    #         decoration.style.height = "6.0rem";
+    #         decoration.style.right = "45px";
+
+    #         // Adjust image decorations with base64 encoded image
+    #         decoration.style.backgroundImage = "url(data:image/jpg;base64,{{image_base64}})";
+    #         decoration.style.backgroundSize = "contain";
+    #         decoration.style.backgroundRepeat = "no-repeat";
+    #     }
+    #     </script>        
+    #     """, 
+    #     width=0, 
+    #     height=0
+    # )
+
 
     # App Title / App Name
     st.title('DocuMindz :bookmark_tabs:')
     st.subheader("Simplify Documents, Amplify Decisions")
+
+
 
     if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
         menu = ["Login","Register"]

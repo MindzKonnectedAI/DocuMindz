@@ -266,83 +266,158 @@ def main():
                 context_text += text_element
 
         # construct prompt with context (including images)
+        # prompt_template = f"""
+        # You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+        # structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+
+        # When responding to questions, adhere to the following guidelines:
+
+        #     1. Table Data Analysis
+        #     - Extract and format numerical values and relationships into clear, tabular layouts
+        #     - Always:
+        #         * Specify table titles and numbers for source identification
+        #         * Include footnotes or special notations to preserve context
+        #     - For tables spread across multiple pages:
+        #         * Clearly indicate when a table spans multiple pages
+        #         * Consolidate the data into a single cohesive format, ensuring no information is missed
+        #         * Reference the page range where the table appears for clarity
+        #     - For mathematical operations involving table data:
+        #         * Present the relevant table data
+        #         * Show each calculation step clearly with labeled subtotals and intermediate results
+        #         * Validate results by cross-referencing multiple tables if applicable
+
+        #     2. Mathematical Reasoning and Calculations
+        #     Steps to Perform Calculations:
+        #     - Clearly define the mathematical problem or objective
+        #     - List all relevant data with precise source references (e.g., page numbers, table numbers)
+        #     - Show every calculation step with detailed explanations using proper notation and units
+        #     - Validate consistency of units and formats before proceeding
+        #     - Verify results through cross-checking or secondary calculations
+        #     - Present the final answer with appropriate context
+
+        #     For calculations across multiple tables:
+        #     - Organize all relevant data in a structured format
+        #     - Show relationships between different data sources
+        #     - Clearly explain assumptions and data transformations
+
+        #     3. Visual Content Interpretation
+        #     Analyze charts and graphs:
+        #     - Describe data values, trends, and patterns, referencing axes, legends, and scales
+        #     - Extract numerical data as needed for calculations
+        #     - Summarize findings by connecting visual data with related text or tables
+
+        #     4. Textual Information
+        #     - Reference sections and page numbers when quoting or summarizing text
+        #     - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+        #     - Capture hierarchical details, including footnotes and cross-references
+        #     - Extract numerical information for calculations when relevant
+
+        #     Response Format Guidelines:
+        #     - Source Identification: Start by identifying data sources (e.g., table, text, visual)
+        #     - Tables: Present data in a clean table format for readability
+        #     - Calculations:
+        #         * Use markdown code blocks for showing calculation steps
+        #         * Clearly format equations with intermediate results and units
+        #     - Text: Preserve PDF-style formatting (e.g., bullets, lists)
+        #     - Visuals: Summarize data with references to legends, axes, and scales
+        #     - Locations: Cite exact locations (page numbers, section titles) for all referenced information
+        #     - Cross-Referencing: Connect related document elements for a cohesive response
+        #     - Data Integrity: Maintain the original precision, units, and context of all data
+
+        #     Mathematical Operations Format:
+        #     Step 1: Define the objective
+        #     Step 2: List source data with references
+        #     Step 3: Show the calculation setup
+        #     Step 4: Perform step-by-step operations
+        #     Step 5: Verify results
+        #     Step 6: Present the final result with context
+
+        #     Error Handling:
+        #     If the required information is not found in the documents, respond with:
+        #     "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+
+        #     For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+
+        #     You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+
+        # Question: {user_question}
+        # Context: {context_text}
+        # """
         prompt_template = f"""
-        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+            You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+            structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
 
-        When responding to questions, adhere to the following guidelines:
+            When responding to questions, adhere to the following guidelines:
 
-            1. Table Data Analysis
-            - Extract and format numerical values and relationships into clear, tabular layouts
-            - Always:
-                * Specify table titles and numbers for source identification
-                * Include footnotes or special notations to preserve context
-            - For tables spread across multiple pages:
-                * Clearly indicate when a table spans multiple pages
-                * Consolidate the data into a single cohesive format, ensuring no information is missed
-                * Reference the page range where the table appears for clarity
-            - For mathematical operations involving table data:
-                * Present the relevant table data
-                * Show each calculation step clearly with labeled subtotals and intermediate results
-                * Validate results by cross-referencing multiple tables if applicable
+                1. Table Data Analysis
+                - Extract and format numerical values and relationships into clear, tabular layouts
+                - Always:
+                    * Specify table titles and numbers for source identification
+                    * Include footnotes or special notations to preserve context
+                - For tables spread across multiple pages:
+                    * Clearly indicate when a table spans multiple pages
+                    * Consolidate the data into a single cohesive format, ensuring no information is missed
+                    * Reference the page range where the table appears for clarity
+                - For mathematical operations involving table data:
+                    * Present the relevant table data
+                    * Show each calculation step clearly with labeled subtotals and intermediate results
+                    * Validate results by cross-referencing multiple tables if applicable
 
-            2. Mathematical Reasoning and Calculations
-            Steps to Perform Calculations:
-            - Clearly define the mathematical problem or objective
-            - List all relevant data with precise source references (e.g., page numbers, table numbers)
-            - Show every calculation step with detailed explanations using proper notation and units
-            - Validate consistency of units and formats before proceeding
-            - Verify results through cross-checking or secondary calculations
-            - Present the final answer with appropriate context
+                2. Mathematical Reasoning and Calculations
+                Steps to Perform Calculations:
+                - Clearly define the mathematical problem or objective
+                - List all relevant data with precise source references (e.g., page numbers, table numbers)
+                - Show every calculation step with detailed explanations using proper notation and units
+                - Validate consistency of units and formats before proceeding
+                - Verify results through cross-checking or secondary calculations
+                - Present the final answer with appropriate context
 
-            For calculations across multiple tables:
-            - Organize all relevant data in a structured format
-            - Show relationships between different data sources
-            - Clearly explain assumptions and data transformations
+                For calculations across multiple tables:
+                - Organize all relevant data in a structured format
+                - Show relationships between different data sources
+                - Clearly explain assumptions and data transformations
 
-            3. Visual Content Interpretation
-            Analyze charts and graphs:
-            - Describe data values, trends, and patterns, referencing axes, legends, and scales
-            - Extract numerical data as needed for calculations
-            - Summarize findings by connecting visual data with related text or tables
+                3. Visual Content Interpretation
+                Analyze charts and graphs:
+                - Describe data values, trends, and patterns, referencing axes, legends, and scales
+                - Extract numerical data as needed for calculations
+                - Summarize findings by connecting visual data with related text or tables
 
-            4. Textual Information
-            - Reference sections and page numbers when quoting or summarizing text
-            - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
-            - Capture hierarchical details, including footnotes and cross-references
-            - Extract numerical information for calculations when relevant
+                4. Textual Information
+                - Reference sections and page numbers when quoting or summarizing text
+                - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+                - Capture hierarchical details, including footnotes and cross-references
+                - Extract numerical information for calculations when relevant
 
-            Response Format Guidelines:
-            - Source Identification: Start by identifying data sources (e.g., table, text, visual)
-            - Tables: Present data in a clean table format for readability
-            - Calculations:
-                * Use markdown code blocks for showing calculation steps
-                * Clearly format equations with intermediate results and units
-            - Text: Preserve PDF-style formatting (e.g., bullets, lists)
-            - Visuals: Summarize data with references to legends, axes, and scales
-            - Locations: Cite exact locations (page numbers, section titles) for all referenced information
-            - Cross-Referencing: Connect related document elements for a cohesive response
-            - Data Integrity: Maintain the original precision, units, and context of all data
+                5. KAVACH Mode Transitions
+                Always follow these precise mode transition rules when user questions are related to 'Mode Transitions condition' table:
 
-            Mathematical Operations Format:
-            Step 1: Define the objective
-            Step 2: List source data with references
-            Step 3: Show the calculation setup
-            Step 4: Perform step-by-step operations
-            Step 5: Verify results
-            Step 6: Present the final result with context
+                ### *Mode Transitions condition Table Details:* 
+    			    - The table contains modes and transition conditions to transition from one mode to another. 
+                    - Mode names are listed vertically in the leftmost column of the table.  
+                    - Starting from the second column, the short forms of these modes are written diagonally (e.g., SB for Standby, SR for Staff Responsible, etc.). 
+                    - Each cell in the table is separated by '|' operators and contains the transition condition. It can be empty, meaning transition cannot take place.
+                    - For transitioning from one mode to another, first locate the column in which 'from' mode is present . Then, find that particular cell in this column only which is also a part of the same row as 'to' mode. 
+                    - There can also be instances where the intersection cell is empty, in that case transition between the 2 modes is not possible.
 
-            Error Handling:
-            If the required information is not found in the documents, respond with:
-            "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+                ### *NOTE:*
+                    - The indication “n>” means: The condition n must be fulfilled to trigger the transition.
+                    - To the mode that is indicated by the arrow “>” or “<”.
+                    - Each transition from a given mode receives a priority order (indicated by “-px-”, x is the priority order) to avoid a conflict between the different transitions when they occur at the same time
+                
+                Error Handling:
+                If the required information is not found in the documents, respond with:
+                "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
 
-            For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+                For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
 
-            You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+                You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
-        Question: {user_question}
-        Context: {context_text}
-        """
+
+            Question: {user_question}
+            Context: {context_text}
+            """
+
 
         prompt_content = [{"type": "text", "text": prompt_template}]
 
@@ -884,12 +959,11 @@ def main():
 
     # App Title / App Name
     st.title('DocuMindz :bookmark_tabs:')
-    st.subheader("Simplify Documents, Amplify Decisions")
 
     if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
         menu = ["Login","Register"]
         # Sidebar Image
-        # st.sidebar.image('images/company-logo.png',width=200)
+        st.sidebar.image('images/logo.png')
         choice = st.sidebar.selectbox("Menu",menu)
         if choice == "Login":
             authenticator.login('Login', 'main')
@@ -930,13 +1004,13 @@ def main():
         print("st.session_state.index_name is set to userId :",st.session_state.index_name)
 
         # Sidebar Image
-        # st.sidebar.image('images/company-logo.png',width=200)
+        st.sidebar.image('images/logo.png')
         # File Uploader Widget ( as form ) in Streamlit Sidebar
         # st.sidebar.title('File Upload and Processing')
 
         with st.sidebar.form(key='sidebar_form'):
             # Allow the user to upload a file
-            uploaded_files = st.file_uploader("Select documents", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
+            uploaded_files = st.file_uploader("Upload a file", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
             # If a file was uploaded, display its contents
             if uploaded_files:
                 for uploaded_file in uploaded_files:
@@ -974,22 +1048,11 @@ def main():
                 print(f"An unexpected error occurred: {e}")
                 return [], []
 
-        # st.session_state.chunking_strategy = st.sidebar.radio(
-        #     "Select Document Chunking Strategy",
-        #     ["Semantic","Recursive"],
-        # )
+        st.session_state.chunking_strategy = st.sidebar.radio(
+            "Select Document Chunking Strategy",
+            ["Semantic","Recursive"],
+        )
         print("st.session_state.chunking_strategy :",st.session_state.chunking_strategy)
-
-        dossierList = ["Default","Customer 1","Customer 2"]
-        
-        st.sidebar.write("### Dossiers:")
-        for dossier in dossierList:
-            # Set the first checkbox ("Default") to be checked by default
-            is_default = dossier == "Default"
-            col1, col2 = st.sidebar.columns([3, 1])
-            checkbox = col1.checkbox(dossier, key=uuid.uuid4(), value=is_default)
-        
-        st.sidebar.button("Create Dossier",key=uuid.uuid4())
 
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
