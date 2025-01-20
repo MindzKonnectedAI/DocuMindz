@@ -66,6 +66,9 @@ from langchain_community.storage import MongoDBStore
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 import re
 from operator import itemgetter
+from pydantic.v1 import BaseModel, Field, Extra
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import PromptTemplate
 
 def main():
     # defaults
@@ -212,7 +215,7 @@ def main():
                 print(f"Error converting item to Document: {e}")
         return documents
 
-    def parse_docs(docs):
+    def parse_docs(docs,need_image):
         """
         Split base64-encoded images and texts.
         
@@ -225,7 +228,7 @@ def main():
                 "texts" containing textual content.
         """
         print(f"Received {len(docs)} documents for parsing.")
-        
+
         base64_pattern = re.compile(r'^[A-Za-z0-9+/]+={0,2}$')
         b64_images = []
         text_contents = []
@@ -250,7 +253,11 @@ def main():
             text_contents.append(content)
         
         print(f"Parsed {len(b64_images)} images and {len(text_contents)} texts.")
-        return {"images": b64_images, "texts": text_contents}
+        if need_image:
+            return {"images": b64_images, "texts": text_contents}
+        else:
+            return {"images": [], "texts": text_contents}
+
 
     
     def build_prompt(kwargs):
@@ -821,10 +828,38 @@ def main():
     #     except Exception as e:
     #         st.error(f"An error occurred while generating the response: {e}")
 
-        # generate response 
+    # generate response 
     def generate_response(prompt: str) :
         try:
+            class ImageRequirementResponse(BaseModel):
+                Need_image: bool = Field(description="Whether the query asks for image or not")
+
+            parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
+
+            def classify_query_needs_image(prompt: str) -> str:
+                """Classifies whether the query requires an image or not."""
+                classifier_prompt = PromptTemplate(
+                    template="""
+                    You are an AI classifier. Your task is to determine if the given query requires an image in the response. 
+                    An image is needed if the query mentions or implies visual elements such as diagrams, pictures, logos, maps, 
+                    or asks about how something looks, appears, or is represented visually.
+
+                    {format_instructions}
+
+                    Query: "{prompt}"
+                    """,
+                    input_variables=["prompt"],
+                    partial_variables={"format_instructions": parser.get_format_instructions()},
+                )
+                chain = classifier_prompt | llm | parser
+                result = chain.invoke({"prompt": prompt})
+                print("result :",result)
+                return result["Need_image"]
+
+            need_image = classify_query_needs_image(prompt)     
+
             contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
+
             # Reranker 
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
@@ -853,7 +888,7 @@ def main():
             )
 
             chain_with_sources = {
-                "context": history_aware_retriever | RunnableLambda(parse_docs), # {"images": b64_images, "texts": text_contents}
+                "context": history_aware_retriever | RunnableLambda(lambda docs: parse_docs(docs, need_image=need_image)), # {"images": b64_images, "texts": text_contents}
                 "question": itemgetter("input"),
                 "chat_history": itemgetter("chat_history"), 
             } | RunnablePassthrough().assign(
