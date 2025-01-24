@@ -56,11 +56,7 @@ from langchain_core.output_parsers import StrOutputParser
 
 from openai import Client
 import uuid
-# from pinecone import Pinecone, ServerlessSpec
-from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone library
-from langchain.storage import InMemoryStore
 from langchain.schema.document import Document
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain_community.storage import MongoDBStore
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
@@ -394,6 +390,11 @@ def main():
     # Pinecone Index to store vectors to ( after user is logged in , this will be set to user's uuid )
     if "index_name" not in st.session_state:
         st.session_state.index_name = ""
+    
+    # Pinecone Namespace to store document vectors
+    if "namespace" not in st.session_state:
+        st.session_state.namespace = "Default"
+
 
     # session id ( for now , it's hardcoded value . later can be set to useruuid_unixtime format )
     if "session_id" not in st.session_state:
@@ -419,8 +420,47 @@ def main():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
-    # if "doc_store" not in st.session_state:
-    #     st.session_state.doc_store = MongoDBByteStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
+    @st.dialog("Create Dossier", width="large")
+    def create_dossier():
+        try:
+            # Check if the index exists
+            existing_indexes = pc.list_indexes()
+            with st.form(key="create_dossier_key"):
+                dossier_name = st.text_input("Dossier Name")
+                form_submitted = st.form_submit_button(label="Submit")
+                if form_submitted:
+                    if not any(index.name == st.session_state.index_name for index in existing_indexes):
+                        print("Creating new index")
+                        # Create a new index if it doesn't already exist
+                        pc.create_index(
+                            name=st.session_state.index_name,
+                            dimension=3072,
+                            metric="cosine",
+                            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                        )
+
+                    # Create a new dossier
+                    index = pc.Index(st.session_state.index_name)
+                    # Upsert a dummy vector to create the namespace
+                    index.upsert(
+                    vectors=[
+                        {"id": "dummy", "values": [0.1] * 3072}
+                    ],
+                    namespace=dossier_name
+                    )
+                    st.rerun()
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+
+
+
+    def getVectorStore():
+        if st.session_state.namespace and st.session_state.namespace!="Default":
+            vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings,namespace=st.session_state.namespace)
+            return vectorstore
+        else:
+            vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+            return vectorstore
 
     selected_files = []
 
@@ -589,7 +629,7 @@ def main():
                 # print ('this is image summary', image_summaries)
 
                 # Pinecone setup (for vector storage)
-                vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                vectorstore = getVectorStore()
                 
                 # The storage layer for the parent documents
                 id_key = "doc_id"
@@ -637,23 +677,34 @@ def main():
             
             # Check if the index exists
             existing_indexes = pc.list_indexes()
-            print("existing_indexes list :",existing_indexes)
-            print("index_name to find :",st.session_state.index_name)
 
-            if any(index.name == st.session_state.index_name for index in existing_indexes):
-                # Delete the existing index
-                pc.delete_index(st.session_state.index_name)
-                print(f"Deleted existing index: ",{st.session_state.index_name})
+            if not any(index.name == st.session_state.index_name for index in existing_indexes):
+                print("Creating new index")
+                # Create a new index if it doesn't already exist
+                pc.create_index(
+                    name=st.session_state.index_name,
+                    dimension=3072,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+            else:
+                print(f"Index already exists: {st.session_state.index_name}")
 
-            print("creating new index")
-            # Create a new index with the same name
-            pc.create_index(
-                name=st.session_state.index_name,
-                dimension=3072,
-                metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-            )
-            print(f"Created new index: ", {st.session_state.index_name})
+            # if any(index.name == st.session_state.index_name for index in existing_indexes):
+            #     # Delete the existing index
+            #     pc.delete_index(st.session_state.index_name)
+            #     print(f"Deleted existing index: ",{st.session_state.index_name})
+
+            # print("creating new index")
+            # # Create a new index with the same name
+            # pc.create_index(
+            #     name=st.session_state.index_name,
+            #     dimension=3072,
+            #     metric="cosine",
+            #     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            # )
+            # print(f"Created new index: ", {st.session_state.index_name})
+
             # Create user-specific directory in data/
             user_folder = os.path.join("data", email)
             os.makedirs(user_folder, exist_ok=True)
@@ -863,7 +914,7 @@ def main():
             # Reranker 
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
-                vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                vectorStore = getVectorStore()
                 
                 id_key = "doc_id"
                 docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
@@ -1014,17 +1065,39 @@ def main():
         #     ["Semantic","Recursive"],
         # )
         print("st.session_state.chunking_strategy :",st.session_state.chunking_strategy)
-
-        dossierList = ["Default","Customer 1","Customer 2"]
         
+        dossierList = ["Default"]
         st.sidebar.write("### Dossiers:")
-        for dossier in dossierList:
-            # Set the first checkbox ("Default") to be checked by default
-            is_default = dossier == "Default"
-            col1, col2 = st.sidebar.columns([3, 1])
-            checkbox = col1.checkbox(dossier, key=uuid.uuid4(), value=is_default)
-        
-        st.sidebar.button("Create Dossier",key=uuid.uuid4())
+
+        if st.session_state.index_name:
+            try:
+                index = pc.describe_index(str(st.session_state.index_name))
+                described_index = pc.Index(host=index.host)
+                index_stats = described_index.describe_index_stats()
+                # print("pinecone index :",index)
+                # print("index_stats :",index_stats)
+                
+                # Extracting namespace names into a list and replacing '' with 'Default'
+                namespace_names = [
+                    'Default' if name == '' else name for name in index_stats['namespaces'].keys()
+                ]
+
+                print("namespace_names list :",namespace_names)
+                combined_dossiers = list(dict.fromkeys(dossierList + namespace_names))
+                st.session_state.namespace = st.sidebar.radio(
+                    "Select Dossier to Chat",
+                    combined_dossiers,
+                    label_visibility="collapsed"
+                )
+
+            except Exception as e:
+                st.session_state.namespace = st.sidebar.radio(
+                    "Select Dossier to Chat",
+                    dossierList,
+                    label_visibility="collapsed"
+                )
+
+        st.sidebar.button("Create Dossier",key=uuid.uuid4(),on_click=create_dossier)
 
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
