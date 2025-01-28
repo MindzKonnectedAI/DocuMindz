@@ -38,7 +38,7 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 
 # Authentication & Database
 import streamlit_authenticator_mongo as stauth
-from dbscript import collection
+from Database.DocumentDatabase.dbscript import collection
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
 

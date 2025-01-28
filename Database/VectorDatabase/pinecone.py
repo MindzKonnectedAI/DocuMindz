@@ -1,0 +1,164 @@
+from PDFParser.PyMuPDF4LLM.parse_pdf import parse_pdf
+from langchain.text_splitter import RecursiveCharacterTextSplitter  # text splitter ( TextSplitter to split Markdown )
+from langchain_experimental.text_splitter import SemanticChunker
+from Models.embedding import embeddings
+import streamlit as st
+from langchain.schema.document import Document
+from langchain.retrievers.multi_vector import MultiVectorRetriever
+import uuid
+import os
+from pinecone import Pinecone, ServerlessSpec 
+
+# Text and Image summary creator functions
+from ResponseGenerator.summaries import create_text_summaries,create_image_summaries
+
+# Doc Store
+from DocStore.docstore import mongo_docstore
+
+from PDFParser.PyMuPDF.extract_pdf_images import convert_image_array_to_documents
+
+from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone library
+
+from Utils.session_states import initialize_session_states
+
+# Initialize session states
+initialize_session_states()
+
+# Pinecone setup (for vector storage)
+api_key_pinecone = os.getenv("PINECONE_API_KEY")
+pc = Pinecone(api_key=api_key_pinecone)
+
+def list_existing_indexes():
+    indexes = pc.list_indexes()
+    return indexes
+
+def getVectorStore():
+    if st.session_state.namespace and st.session_state.namespace!="Default":
+        vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings,namespace=st.session_state.namespace)
+        return vectorstore
+    else:
+        vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+        return vectorstore
+
+
+# Create vector database for multiple files
+def create_vector_database(user_folder, file_paths,selected_files):
+    """
+    Creates a vector database using document loaders and embeddings for multiple files.
+
+    This function loads PDF documents,
+    splits the loaded documents into chunks, transforms them into embeddings using OpenAIEmbeddings,
+    and finally persists the embeddings into a Pinecone vector database.
+    """
+    try:
+        print("Inside create_vector_database function")
+            
+        for file_path, file_name in zip(file_paths, selected_files):
+                
+            parsed_data, unique_xref_array = parse_pdf(file_path, user_folder)
+            # print ('parsed_Data', parsed_data)
+            # print ('unique_xref_Array', unique_xref_array)
+            docs = []
+
+            if(st.session_state.chunking_strategy=="Recursive"):
+                ## Recursive Chunking 
+                recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+                chunked_texts = recursive_text_splitter.split_text(parsed_data)
+                
+            elif(st.session_state.chunking_strategy=="Semantic"):
+                ## Semantic Chunking
+                semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
+                chunked_texts = semantic_text_splitter.split_text(parsed_data)
+
+            # Convert chunks to LangChain Document objects
+            # docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
+            docs = [Document(page_content=text) for text in chunked_texts]
+
+            text_summaries= create_text_summaries(docs) #-> return text summaries 
+            print ('length of text summary', len(text_summaries)) 
+            # print ('this is text summary',text_summaries) 
+
+            image_summaries= create_image_summaries(unique_xref_array) #-> return image summaries
+            print ('length of image summary', len(image_summaries))
+            # print ('this is image summary', image_summaries)
+
+            # Pinecone setup (for vector storage)
+            vectorstore = getVectorStore()
+            
+            # The storage layer for the parent documents
+            id_key = "doc_id"
+                
+            # The retriever (empty to start)
+            retriever = MultiVectorRetriever(
+                vectorstore=vectorstore,
+                docstore=mongo_docstore,
+                id_key="doc_id",
+            )
+            # Add texts
+            doc_ids = [str(uuid.uuid4()) for _ in docs]
+            summary_texts = [
+                Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
+            ]
+            retriever.vectorstore.add_documents(summary_texts)
+            retriever.docstore.mset(list(zip(doc_ids, docs)))
+                
+            final_array = convert_image_array_to_documents(unique_xref_array)
+
+            # Add image summaries
+            img_ids = [str(uuid.uuid4()) for _ in final_array]
+            summary_img = [
+                Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
+            ]
+            retriever.vectorstore.add_documents(summary_img)
+            retriever.docstore.mset(list(zip(img_ids, final_array)))      
+            print(file_name+" upserted to Pinecone successfully")
+        return
+    except Exception as e:
+        print(f"Error details: {str(e)}")
+        st.error(f"An error occurred while creating the vector database: {e}")
+
+    
+def process_selected_files(save_folder, email,selected_files):
+    try:
+        file_paths = []
+        for file in selected_files:
+            file_path = os.path.join(save_folder, file)
+            file_paths.append(file_path)
+            
+        # Check if the index exists
+        existing_indexes = list_existing_indexes()
+
+        if not any(index.name == st.session_state.index_name for index in existing_indexes):
+            print("Creating new index")
+            # Create a new index if it doesn't already exist
+            pc.create_index(
+                name=st.session_state.index_name,
+                dimension=3072,
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            )
+        else:
+            print(f"Index already exists: {st.session_state.index_name}")
+
+        # Create user-specific directory in data/
+        user_folder = os.path.join("data", email)
+        os.makedirs(user_folder, exist_ok=True)
+            
+        # Create the vector database for multiple files
+        create_vector_database(user_folder, file_paths, selected_files)
+            
+        # Save the names of the files that were converted
+        selected_file_folder = os.path.join("selected", email)
+        os.makedirs(selected_file_folder, exist_ok=True)
+        text_file_path = os.path.join(selected_file_folder, "selected.txt")
+            
+        with open(text_file_path, "w") as f:
+            for file_name in selected_files:
+                f.write(file_name + "\n")
+            
+        print("Successfully processed all file")
+        return True
+    except  Exception as e:
+        print(f"Error in process_selected_files: {str(e)}")
+        st.error(f"An error occurred while processing files: {str(e)}")
+        return False
