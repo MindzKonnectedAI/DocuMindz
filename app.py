@@ -423,12 +423,13 @@ def main():
     @st.dialog("Create Dossier", width="large")
     def create_dossier():
         try:
-            # Check if the index exists
-            existing_indexes = pc.list_indexes()
             with st.form(key="create_dossier_key"):
                 dossier_name = st.text_input("Dossier Name")
                 form_submitted = st.form_submit_button(label="Submit")
                 if form_submitted:
+                    # Check if the index exists
+                    existing_indexes = pc.list_indexes()
+
                     if not any(index.name == st.session_state.index_name for index in existing_indexes):
                         print("Creating new index")
                         # Create a new index if it doesn't already exist
@@ -443,10 +444,10 @@ def main():
                     index = pc.Index(st.session_state.index_name)
                     # Upsert a dummy vector to create the namespace
                     index.upsert(
-                    vectors=[
-                        {"id": "dummy", "values": [0.1] * 3072}
-                    ],
-                    namespace=dossier_name
+                        vectors=[
+                            {"id": "dummy", "values": [0.1] * 3072}
+                        ],
+                        namespace=dossier_name,
                     )
                     st.rerun()
         except Exception as e:
@@ -1072,11 +1073,11 @@ def main():
 
         if st.session_state.index_name:
             try:
-                index = pc.describe_index(str(st.session_state.index_name))
+                index = pc.describe_index(st.session_state.index_name)
                 described_index = pc.Index(host=index.host)
                 index_stats = described_index.describe_index_stats()
                 # print("pinecone index :",index)
-                # print("index_stats :",index_stats)
+                print("index_stats :",index_stats)
                 
                 # Extracting namespace names into a list and replacing '' with 'Default'
                 namespace_names = [
