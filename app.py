@@ -1005,7 +1005,8 @@ def main():
         email = st.session_state["email"]
 
         # PDF files directory (to save PDF files to local db)
-        save_folder = f"PDF_PATH/{email}"
+        print("st.session_state.namespace :",st.session_state.namespace)
+        save_folder = f"PDF_PATH/{email}/{st.session_state.namespace}"
         print("save folder :",save_folder)
 
         userData = collection.find_one({"email":email})
@@ -1101,7 +1102,7 @@ def main():
 
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
-        selected_file_path = f"selected/{email}/selected.txt"
+        selected_file_path = f"selected/{email}/{st.session_state.namespace}/selected.txt"
 
         uploaded_files_list, saved_selected_files = list_files_in_directory(save_folder, selected_file_path)
 

@@ -56,16 +56,15 @@ from langchain_core.output_parsers import StrOutputParser
 
 from openai import Client
 import uuid
-# from pinecone import Pinecone, ServerlessSpec
-from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone library
-from langchain.storage import InMemoryStore
 from langchain.schema.document import Document
-from langchain.embeddings import OpenAIEmbeddings
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain_community.storage import MongoDBStore
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 import re
 from operator import itemgetter
+from pydantic.v1 import BaseModel, Field, Extra
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import PromptTemplate
 
 def main():
     # defaults
@@ -212,7 +211,7 @@ def main():
                 print(f"Error converting item to Document: {e}")
         return documents
 
-    def parse_docs(docs):
+    def parse_docs(docs,need_image):
         """
         Split base64-encoded images and texts.
         
@@ -225,7 +224,7 @@ def main():
                 "texts" containing textual content.
         """
         print(f"Received {len(docs)} documents for parsing.")
-        
+
         base64_pattern = re.compile(r'^[A-Za-z0-9+/]+={0,2}$')
         b64_images = []
         text_contents = []
@@ -250,7 +249,11 @@ def main():
             text_contents.append(content)
         
         print(f"Parsed {len(b64_images)} images and {len(text_contents)} texts.")
-        return {"images": b64_images, "texts": text_contents}
+        if need_image:
+            return {"images": b64_images, "texts": text_contents}
+        else:
+            return {"images": [], "texts": text_contents}
+
 
     
     def build_prompt(kwargs):
@@ -267,77 +270,83 @@ def main():
 
         # construct prompt with context (including images)
         prompt_template = f"""
-            You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-            structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
 
-            When responding to questions, adhere to the following guidelines:
+        When responding to questions, adhere to the following guidelines:
 
-                1. Table Data Analysis
-                - Extract and format numerical values and relationships into clear, tabular layouts
-                - Always:
-                    * Specify table titles and numbers for source identification
-                    * Include footnotes or special notations to preserve context
-                - For tables spread across multiple pages:
-                    * Clearly indicate when a table spans multiple pages
-                    * Consolidate the data into a single cohesive format, ensuring no information is missed
-                    * Reference the page range where the table appears for clarity
-                - For mathematical operations involving table data:
-                    * Present the relevant table data
-                    * Show each calculation step clearly with labeled subtotals and intermediate results
-                    * Validate results by cross-referencing multiple tables if applicable
+            1. Table Data Analysis
+            - Extract and format numerical values and relationships into clear, tabular layouts
+            - Always:
+                * Specify table titles and numbers for source identification
+                * Include footnotes or special notations to preserve context
+            - For tables spread across multiple pages:
+                * Clearly indicate when a table spans multiple pages
+                * Consolidate the data into a single cohesive format, ensuring no information is missed
+                * Reference the page range where the table appears for clarity
+            - For mathematical operations involving table data:
+                * Present the relevant table data
+                * Show each calculation step clearly with labeled subtotals and intermediate results
+                * Validate results by cross-referencing multiple tables if applicable
 
-                2. Mathematical Reasoning and Calculations
-                Steps to Perform Calculations:
-                - Clearly define the mathematical problem or objective
-                - List all relevant data with precise source references (e.g., page numbers, table numbers)
-                - Show every calculation step with detailed explanations using proper notation and units
-                - Validate consistency of units and formats before proceeding
-                - Verify results through cross-checking or secondary calculations
-                - Present the final answer with appropriate context
+            2. Mathematical Reasoning and Calculations
+            Steps to Perform Calculations:
+            - Clearly define the mathematical problem or objective
+            - List all relevant data with precise source references (e.g., page numbers, table numbers)
+            - Show every calculation step with detailed explanations using proper notation and units
+            - Validate consistency of units and formats before proceeding
+            - Verify results through cross-checking or secondary calculations
+            - Present the final answer with appropriate context
 
-                For calculations across multiple tables:
-                - Organize all relevant data in a structured format
-                - Show relationships between different data sources
-                - Clearly explain assumptions and data transformations
+            For calculations across multiple tables:
+            - Organize all relevant data in a structured format
+            - Show relationships between different data sources
+            - Clearly explain assumptions and data transformations
 
-                3. Visual Content Interpretation
-                Analyze charts and graphs:
-                - Describe data values, trends, and patterns, referencing axes, legends, and scales
-                - Extract numerical data as needed for calculations
-                - Summarize findings by connecting visual data with related text or tables
+            3. Visual Content Interpretation
+            Analyze charts and graphs:
+            - Describe data values, trends, and patterns, referencing axes, legends, and scales
+            - Extract numerical data as needed for calculations
+            - Summarize findings by connecting visual data with related text or tables
 
-                4. Textual Information
-                - Reference sections and page numbers when quoting or summarizing text
-                - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
-                - Capture hierarchical details, including footnotes and cross-references
-                - Extract numerical information for calculations when relevant
+            4. Textual Information
+            - Reference sections and page numbers when quoting or summarizing text
+            - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
+            - Capture hierarchical details, including footnotes and cross-references
+            - Extract numerical information for calculations when relevant
 
-                5. KAVACH Mode Transitions
-                Always follow these precise mode transition rules when user questions are related to 'Mode Transitions condition' table:
+            Response Format Guidelines:
+            - Source Identification: Start by identifying data sources (e.g., table, text, visual)
+            - Tables: Present data in a clean table format for readability
+            - Calculations:
+                * Use markdown code blocks for showing calculation steps
+                * Clearly format equations with intermediate results and units
+            - Text: Preserve PDF-style formatting (e.g., bullets, lists)
+            - Visuals: Summarize data with references to legends, axes, and scales
+            - Locations: Cite exact locations (page numbers, section titles) for all referenced information
+            - Cross-Referencing: Connect related document elements for a cohesive response
+            - Data Integrity: Maintain the original precision, units, and context of all data
 
-                ### *Mode Transitions condition Table Details:* 
-    			    - The table contains modes and transition conditions to transition from one mode to another. 
-                    - Cells can be empty . In that case, between the pipe operators there is nothing (e.g.||)
-                    - To determine the transition condition between two modes, you must:
-                        1. Must always locate the Col in which "from" mode is present.
-                        2. Must always locate the Col in which "to" mode is present.
-                        3. Must always find the cell at the intersection of the Col where "from" mode is present and the row where "to" mode is present. 
-                        4. The value in the intersection cell is always the transition condition.
-                        5. If the cell is empty, the transition is not possible. Otherwise, note the condition(s) specified in the cell.
-                        6. You must always recheck your answer before returning to user.
-                
-                Error Handling:
-                If the required information is not found in the documents, respond with:
-                "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+            Mathematical Operations Format:
+            Step 1: Define the objective
+            Step 2: List source data with references
+            Step 3: Show the calculation setup
+            Step 4: Perform step-by-step operations
+            Step 5: Verify results
+            Step 6: Present the final result with context
 
-                For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
+            Error Handling:
+            If the required information is not found in the documents, respond with:
+            "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
 
-                You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+            For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
 
+            You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
-            Question: {user_question}
-            Context: {context_text}
-            """
+        Question: {user_question}
+        Context: {context_text}
+        """
+
         prompt_content = [{"type": "text", "text": prompt_template}]
 
         if len(docs_by_type["images"]) > 0:
@@ -381,6 +390,11 @@ def main():
     # Pinecone Index to store vectors to ( after user is logged in , this will be set to user's uuid )
     if "index_name" not in st.session_state:
         st.session_state.index_name = ""
+    
+    # Pinecone Namespace to store document vectors
+    if "namespace" not in st.session_state:
+        st.session_state.namespace = "Default"
+
 
     # session id ( for now , it's hardcoded value . later can be set to useruuid_unixtime format )
     if "session_id" not in st.session_state:
@@ -406,8 +420,47 @@ def main():
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
-    # if "doc_store" not in st.session_state:
-    #     st.session_state.doc_store = MongoDBByteStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
+    @st.dialog("Create Dossier", width="large")
+    def create_dossier():
+        try:
+            # Check if the index exists
+            existing_indexes = pc.list_indexes()
+            with st.form(key="create_dossier_key"):
+                dossier_name = st.text_input("Dossier Name")
+                form_submitted = st.form_submit_button(label="Submit")
+                if form_submitted:
+                    if not any(index.name == st.session_state.index_name for index in existing_indexes):
+                        print("Creating new index")
+                        # Create a new index if it doesn't already exist
+                        pc.create_index(
+                            name=st.session_state.index_name,
+                            dimension=3072,
+                            metric="cosine",
+                            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                        )
+
+                    # Create a new dossier
+                    index = pc.Index(st.session_state.index_name)
+                    # Upsert a dummy vector to create the namespace
+                    index.upsert(
+                    vectors=[
+                        {"id": "dummy", "values": [0.1] * 3072}
+                    ],
+                    namespace=dossier_name
+                    )
+                    st.rerun()
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+
+
+
+    def getVectorStore():
+        if st.session_state.namespace and st.session_state.namespace!="Default":
+            vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings,namespace=st.session_state.namespace)
+            return vectorstore
+        else:
+            vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+            return vectorstore
 
     selected_files = []
 
@@ -576,7 +629,7 @@ def main():
                 # print ('this is image summary', image_summaries)
 
                 # Pinecone setup (for vector storage)
-                vectorstore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                vectorstore = getVectorStore()
                 
                 # The storage layer for the parent documents
                 id_key = "doc_id"
@@ -624,25 +677,36 @@ def main():
             
             # Check if the index exists
             existing_indexes = pc.list_indexes()
-            print("existing_indexes list :",existing_indexes)
-            print("index_name to find :",st.session_state.index_name)
 
-            if any(index.name == st.session_state.index_name for index in existing_indexes):
-                # Delete the existing index
-                pc.delete_index(st.session_state.index_name)
-                print(f"Deleted existing index: ",{st.session_state.index_name})
+            if not any(index.name == st.session_state.index_name for index in existing_indexes):
+                print("Creating new index")
+                # Create a new index if it doesn't already exist
+                pc.create_index(
+                    name=st.session_state.index_name,
+                    dimension=3072,
+                    metric="cosine",
+                    spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                )
+            else:
+                print(f"Index already exists: {st.session_state.index_name}")
 
-            print("creating new index")
-            # Create a new index with the same name
-            pc.create_index(
-                name=st.session_state.index_name,
-                dimension=3072,
-                metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
-            )
-            print(f"Created new index: ", {st.session_state.index_name})
+            # if any(index.name == st.session_state.index_name for index in existing_indexes):
+            #     # Delete the existing index
+            #     pc.delete_index(st.session_state.index_name)
+            #     print(f"Deleted existing index: ",{st.session_state.index_name})
+
+            # print("creating new index")
+            # # Create a new index with the same name
+            # pc.create_index(
+            #     name=st.session_state.index_name,
+            #     dimension=3072,
+            #     metric="cosine",
+            #     spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+            # )
+            # print(f"Created new index: ", {st.session_state.index_name})
+
             # Create user-specific directory in data/
-            user_folder = os.path.join("data", email)
+            user_folder = os.path.join("data", email,st.session_state.namespace)
             os.makedirs(user_folder, exist_ok=True)
             
             # Create the vector database for multiple files
@@ -679,150 +743,43 @@ def main():
         with open(file_path, mode='wb') as w:
             w.write(file.getvalue())
             st.session_state["file_uploader_key"] += 1
-            # st.sidebar.success(f"File {file.name} uploaded successfully!")
 
-    # # generate response 
-    # def generate_response(prompt: str) :
-    #     try:
-    #         contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
-
-    #         # Reranker 
-    #         def reRanker():
-    #             compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
-    #             vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
-                
-    #             id_key = "doc_id"
-    #             docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
-                
-    #             retriever = MultiVectorRetriever(
-    #                 vectorstore=vectorStore,
-    #                 docstore=docstore,
-    #                 id_key=id_key,
-    #             )
-
-    #             compression_retriever = ContextualCompressionRetriever(
-    #                 base_compressor=compressor,
-    #                 base_retriever=retriever,
-    #             )
-
-    #             return compression_retriever
-
-    #         compression_retriever = reRanker()
-
-    #         history_aware_retriever = create_history_aware_retriever(
-    #                 llm, compression_retriever, contextualize_q_prompt
-    #         )
-
-            # system_prompt = """You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-            # structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
-
-            # When responding to questions, adhere to the following guidelines:
-
-            # 1. Table Data Analysis
-            # - Extract and format numerical values and relationships into clear, tabular layouts
-            # - Always:
-            #     * Specify table titles and numbers for source identification
-            #     * Include footnotes or special notations to preserve context
-            # - For tables spread across multiple pages:
-            #     * Clearly indicate when a table spans multiple pages
-            #     * Consolidate the data into a single cohesive format, ensuring no information is missed
-            #     * Reference the page range where the table appears for clarity
-            # - For mathematical operations involving table data:
-            #     * Present the relevant table data
-            #     * Show each calculation step clearly with labeled subtotals and intermediate results
-            #     * Validate results by cross-referencing multiple tables if applicable
-
-            # 2. Mathematical Reasoning and Calculations
-            # Steps to Perform Calculations:
-            # - Clearly define the mathematical problem or objective
-            # - List all relevant data with precise source references (e.g., page numbers, table numbers)
-            # - Show every calculation step with detailed explanations using proper notation and units
-            # - Validate consistency of units and formats before proceeding
-            # - Verify results through cross-checking or secondary calculations
-            # - Present the final answer with appropriate context
-
-            # For calculations across multiple tables:
-            # - Organize all relevant data in a structured format
-            # - Show relationships between different data sources
-            # - Clearly explain assumptions and data transformations
-
-            # 3. Visual Content Interpretation
-            # Analyze charts and graphs:
-            # - Describe data values, trends, and patterns, referencing axes, legends, and scales
-            # - Extract numerical data as needed for calculations
-            # - Summarize findings by connecting visual data with related text or tables
-
-            # 4. Textual Information
-            # - Reference sections and page numbers when quoting or summarizing text
-            # - Retain original formatting (e.g., bullet points, numbered lists, paragraphs)
-            # - Capture hierarchical details, including footnotes and cross-references
-            # - Extract numerical information for calculations when relevant
-
-            # Response Format Guidelines:
-            # - Source Identification: Start by identifying data sources (e.g., table, text, visual)
-            # - Tables: Present data in a clean table format for readability
-            # - Calculations:
-            #     * Use markdown code blocks for showing calculation steps
-            #     * Clearly format equations with intermediate results and units
-            # - Text: Preserve PDF-style formatting (e.g., bullets, lists)
-            # - Visuals: Summarize data with references to legends, axes, and scales
-            # - Locations: Cite exact locations (page numbers, section titles) for all referenced information
-            # - Cross-Referencing: Connect related document elements for a cohesive response
-            # - Data Integrity: Maintain the original precision, units, and context of all data
-
-            # Mathematical Operations Format:
-            # Step 1: Define the objective
-            # Step 2: List source data with references
-            # Step 3: Show the calculation setup
-            # Step 4: Perform step-by-step operations
-            # Step 5: Verify results
-            # Step 6: Present the final result with context
-
-            # Error Handling:
-            # If the required information is not found in the documents, respond with:
-            # "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
-
-            # For tables spanning multiple pages, provide a consolidated analysis of the data across those pages, ensuring completeness and accuracy.
-
-            # You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
-
-            # {context}"""
-
-
-    #         chatPrompt = ChatPromptTemplate.from_messages(
-    #                 [
-    #                     ("system", system_prompt),
-    #                     MessagesPlaceholder("chat_history"),
-    #                     ("human", "{input}"),
-    #                 ]
-    #         )
-                            
-    #         question_answer_chain = create_stuff_documents_chain(llm, chatPrompt)
-
-    #         rag_chain = create_retrieval_chain(history_aware_retriever, question_answer_chain)
-
-    #         conversational_rag_chain = RunnableWithMessageHistory(
-    #                 rag_chain,
-    #                 get_session_history,
-    #                 input_messages_key="input",
-    #                 output_messages_key="answer",
-    #                 history_messages_key="chat_history",
-    #         )
-    #         for chunk in conversational_rag_chain.stream(input={"input": prompt},config={'configurable': {'session_id': st.session_state.session_id}}):
-    #             answer_chunk = chunk.get("answer")
-    #             if answer_chunk:
-    #                 yield answer_chunk
-    #     except Exception as e:
-    #         st.error(f"An error occurred while generating the response: {e}")
-
-        # generate response 
+    # generate response 
     def generate_response(prompt: str) :
         try:
+            class ImageRequirementResponse(BaseModel):
+                Need_image: bool = Field(description="Whether the query asks for image or not")
+
+            parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
+
+            def classify_query_needs_image(prompt: str) -> str:
+                """Classifies whether the query requires an image or not."""
+                classifier_prompt = PromptTemplate(
+                    template="""
+                    You are an AI classifier. Your task is to determine if the given query requires an image in the response. 
+                    An image is needed if the query mentions or implies visual elements such as diagrams, pictures, logos, maps, 
+                    or asks about how something looks, appears, or is represented visually.
+
+                    {format_instructions}
+
+                    Query: "{prompt}"
+                    """,
+                    input_variables=["prompt"],
+                    partial_variables={"format_instructions": parser.get_format_instructions()},
+                )
+                chain = classifier_prompt | llm | parser
+                result = chain.invoke({"prompt": prompt})
+                print("result :",result)
+                return result["Need_image"]
+
+            need_image = classify_query_needs_image(prompt)     
+
             contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
+
             # Reranker 
             def reRanker():
                 compressor = CohereRerank(model="rerank-english-v3.0",client=cohere_client)
-                vectorStore = PineconeVectorStore(index_name=st.session_state.index_name, embedding=embeddings)
+                vectorStore = getVectorStore()
                 
                 id_key = "doc_id"
                 docstore = MongoDBStore(MONGO_DB_CONN_STR, db_name="new",collection_name=st.session_state.index_name)
@@ -847,7 +804,7 @@ def main():
             )
 
             chain_with_sources = {
-                "context": history_aware_retriever | RunnableLambda(parse_docs), # {"images": b64_images, "texts": text_contents}
+                "context": history_aware_retriever | RunnableLambda(lambda docs: parse_docs(docs, need_image=need_image)), # {"images": b64_images, "texts": text_contents}
                 "question": itemgetter("input"),
                 "chat_history": itemgetter("chat_history"), 
             } | RunnablePassthrough().assign(
@@ -878,11 +835,12 @@ def main():
 
     # App Title / App Name
     st.title('DocuMindz :bookmark_tabs:')
+    st.subheader("Simplify Documents, Amplify Decisions")
 
     if st.session_state["authentication_status"] is None or st.session_state["authentication_status"] is False:
         menu = ["Login","Register"]
         # Sidebar Image
-        st.sidebar.image('images/logo.png')
+        # st.sidebar.image('images/company-logo.png',width=200)
         choice = st.sidebar.selectbox("Menu",menu)
         if choice == "Login":
             authenticator.login('Login', 'main')
@@ -912,7 +870,8 @@ def main():
         email = st.session_state["email"]
 
         # PDF files directory (to save PDF files to local db)
-        save_folder = f"PDF_PATH/{email}"
+        print("st.session_state.namespace :",st.session_state.namespace)
+        save_folder = f"PDF_PATH/{email}/{st.session_state.namespace}"
         print("save folder :",save_folder)
 
         userData = collection.find_one({"email":email})
@@ -922,14 +881,9 @@ def main():
         print("user's unique id :",userId)
         print("st.session_state.index_name is set to userId :",st.session_state.index_name)
 
-        # Sidebar Image
-        st.sidebar.image('images/logo.png')
-        # File Uploader Widget ( as form ) in Streamlit Sidebar
-        # st.sidebar.title('File Upload and Processing')
-
         with st.sidebar.form(key='sidebar_form'):
             # Allow the user to upload a file
-            uploaded_files = st.file_uploader("Upload a file", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
+            uploaded_files = st.file_uploader("Select documents", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
             # If a file was uploaded, display its contents
             if uploaded_files:
                 for uploaded_file in uploaded_files:
@@ -967,15 +921,49 @@ def main():
                 print(f"An unexpected error occurred: {e}")
                 return [], []
 
-        st.session_state.chunking_strategy = st.sidebar.radio(
-            "Select Document Chunking Strategy",
-            ["Semantic","Recursive"],
-        )
         print("st.session_state.chunking_strategy :",st.session_state.chunking_strategy)
+        
+        dossierList = ["Default"]
+        st.sidebar.write("### Dossiers:")
+
+        def get_pinecone_namespaces():
+            try:
+                index = pc.describe_index(str(st.session_state.index_name))
+                described_index = pc.Index(host=index.host)
+                index_stats = described_index.describe_index_stats()
+                
+                # Extracting namespace names into a list and replacing '' with 'Default'
+                namespace_names = [
+                    'Default' if name == '' else name for name in index_stats['namespaces'].keys()
+                ]
+
+                print("namespace_names list :",namespace_names)
+                combined_dossiers = list(dict.fromkeys(dossierList + namespace_names))
+                return combined_dossiers
+
+            except Exception as e:
+                return False
+        
+        combined_dossiers = get_pinecone_namespaces()
+            
+        if combined_dossiers:
+            st.session_state.namespace = st.sidebar.radio(
+                "Select Dossier to Chat",
+                combined_dossiers,
+                label_visibility="collapsed"
+            )
+        else:
+            st.session_state.namespace = st.sidebar.radio(
+                "Select Dossier to Chat",
+                dossierList,
+                label_visibility="collapsed"
+            )
+
+        st.sidebar.button("Create Dossier",key=uuid.uuid4(),on_click=create_dossier)
 
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
-        selected_file_path = f"selected/{email}/selected.txt"
+        selected_file_path = f"selected/{email}/{st.session_state.namespace}/selected.txt"
 
         uploaded_files_list, saved_selected_files = list_files_in_directory(save_folder, selected_file_path)
 
