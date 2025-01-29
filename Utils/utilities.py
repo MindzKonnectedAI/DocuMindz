@@ -86,3 +86,10 @@ def delete_file(file_path, selected_file_path, email, file):
                             st.sidebar.success(f"Pinecone index for {file} deleted successfully!")
     except Exception as e:
         st.sidebar.error(f"An error occurred while deleting the file: {e}")
+
+def update_dossier():
+    st.session_state.namespace = st.session_state.dossier_radio
+
+# Function to determine the default index
+def get_default_index(combined_dossiers):
+    return combined_dossiers.index(st.session_state.namespace) if st.session_state.namespace in combined_dossiers else 0

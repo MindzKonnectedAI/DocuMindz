@@ -89,6 +89,7 @@ langchain-cohere==0.1.8
 langchain-community==0.2.19
 langchain-core==0.2.43
 langchain-experimental==0.0.65
+langchain-mongodb==0.1.9
 langchain-openai==0.1.14
 langchain-pinecone==0.1.1
 langchain-text-splitters==0.2.2

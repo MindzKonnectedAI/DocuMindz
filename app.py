@@ -23,7 +23,7 @@ import uuid
 # Response Generator function
 from ResponseGenerator.llmresponse import generate_response
 
-from Utils.utilities import temporary_success_message,save_file,disable,disableOff,list_files_in_directory,delete_file
+from Utils.utilities import temporary_success_message,save_file,disable,disableOff,list_files_in_directory,delete_file,update_dossier,get_default_index
 
 from Database.VectorDatabase.pinecone import pc,process_selected_files,list_existing_indexes,wait_on_index,wait_on_namespace
 from Utils.session_states import initialize_session_states
@@ -90,7 +90,7 @@ def main():
                                 metric="cosine",
                                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
                             )
-                            wait_on_index(st.session_state.index_name)
+                            # wait_on_index(st.session_state.index_name)
 
                         # Create a new dossier
                         index = pc.Index(st.session_state.index_name)
@@ -144,7 +144,8 @@ def main():
         print("st.session_state.namespace :",st.session_state.namespace)
         save_folder = f"PDF_PATH/{email}/{st.session_state.namespace}"
         print("save folder :",save_folder)
-
+        selected_file_path = f"selected/{email}/{st.session_state.namespace}/selected.txt"
+        print("selected_file_path :",selected_file_path)
         userData = collection.find_one({"email":email})
         print("user id by email :",userData["_id"])
         userId = userData["_id"]
@@ -191,17 +192,23 @@ def main():
 
             print("namespace_names list :",namespace_names)
             combined_dossiers = list(dict.fromkeys(dossierList + namespace_names))
-            st.session_state.namespace = st.sidebar.radio(
+            st.sidebar.radio(
                 "Select Dossier to Chat",
                 combined_dossiers,
-                label_visibility="collapsed"
+                key="dossier_radio",
+                label_visibility="collapsed",
+                on_change=update_dossier,
+                index=get_default_index(combined_dossiers)
             )
 
         except Exception as e:
-            st.session_state.namespace = st.sidebar.radio(
+            st.sidebar.radio(
                 "Select Dossier to Chat",
                 dossierList,
-                label_visibility="collapsed"
+                key="dossier_radio",
+                label_visibility="collapsed",
+                on_change=update_dossier,
+                index=get_default_index(dossierList)
             )
             
 
@@ -209,7 +216,6 @@ def main():
 
         # Display the list of uploaded files with delete buttons
         st.sidebar.write("### Uploaded Files:")
-        selected_file_path = f"selected/{email}/{st.session_state.namespace}/selected.txt"
 
         uploaded_files_list, saved_selected_files = list_files_in_directory(save_folder, selected_file_path)
 
