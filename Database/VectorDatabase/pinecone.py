@@ -128,23 +128,25 @@ def create_vector_database(user_folder, file_paths,selected_files):
                 docstore=mongo_docstore,
                 id_key="doc_id",
             )
-            # Add texts
-            doc_ids = [str(uuid.uuid4()) for _ in docs]
-            summary_texts = [
-                Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
-            ]
-            retriever.vectorstore.add_documents(summary_texts)
-            retriever.docstore.mset(list(zip(doc_ids, docs)))
-                
-            final_array = convert_image_array_to_documents(unique_xref_array)
+            if text_summaries:
+                # Add texts
+                doc_ids = [str(uuid.uuid4()) for _ in docs]
+                summary_texts = [
+                    Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
+                ]
+                retriever.vectorstore.add_documents(summary_texts)
+                retriever.docstore.mset(list(zip(doc_ids, docs)))
 
-            # Add image summaries
-            img_ids = [str(uuid.uuid4()) for _ in final_array]
-            summary_img = [
-                Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
-            ]
-            retriever.vectorstore.add_documents(summary_img)
-            retriever.docstore.mset(list(zip(img_ids, final_array)))      
+            if image_summaries:  
+                final_array = convert_image_array_to_documents(unique_xref_array)
+                # Add image summaries
+                img_ids = [str(uuid.uuid4()) for _ in final_array]
+                summary_img = [
+                    Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
+                ]
+                retriever.vectorstore.add_documents(summary_img)
+                retriever.docstore.mset(list(zip(img_ids, final_array)))  
+                    
             print(file_name+" upserted to Pinecone successfully")
         return
     except Exception as e:
@@ -176,14 +178,14 @@ def process_selected_files(save_folder, email,selected_files):
             print(f"Index already exists: {st.session_state.index_name}")
 
         # Create user-specific directory in data/
-        user_folder = os.path.join("data", email)
+        user_folder = os.path.join("data", email,st.session_state.namespace)
         os.makedirs(user_folder, exist_ok=True)
             
         # Create the vector database for multiple files
         create_vector_database(user_folder, file_paths, selected_files)
             
         # Save the names of the files that were converted
-        selected_file_folder = os.path.join("selected", email)
+        selected_file_folder = os.path.join("selected", email,st.session_state.namespace)
         os.makedirs(selected_file_folder, exist_ok=True)
         text_file_path = os.path.join(selected_file_folder, "selected.txt")
             
