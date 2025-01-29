@@ -8,6 +8,7 @@ from langchain.retrievers.multi_vector import MultiVectorRetriever
 import uuid
 import os
 from pinecone import Pinecone, ServerlessSpec 
+import time
 
 # Text and Image summary creator functions
 from ResponseGenerator.summaries import create_text_summaries,create_image_summaries
@@ -31,6 +32,39 @@ pc = Pinecone(api_key=api_key_pinecone)
 def list_existing_indexes():
     indexes = pc.list_indexes()
     return indexes
+
+def wait_on_namespace(index_name: str, namespace: str):
+    """
+    Waits until the specified namespace is available in the Pinecone index.
+    """
+    ready = False
+    while not ready:
+        try:
+            index = pc.Index(index_name)
+            index_stats = index.describe_index_stats()
+                
+            # Check if namespace exists in the index stats
+            if namespace in index_stats.get("namespaces", {}):
+                return True
+        except pc.core.client.exceptions.NotFoundException:
+            # If namespace isn't found, keep waiting
+            pass
+        time.sleep(5)
+
+def wait_on_index(index: str):
+    """
+    Takes the name of the index to wait for and blocks until it's available and ready.
+    """
+    ready = False
+    while not ready:
+        try:
+            desc = pc.describe_index(index)
+            if desc[7]['ready']:
+                return True
+        except pc.core.client.exceptions.NotFoundException:
+            # NotFoundException means the index is created yet.
+            pass
+        time.sleep(5)
 
 def getVectorStore():
     if st.session_state.namespace and st.session_state.namespace!="Default":
@@ -137,6 +171,7 @@ def process_selected_files(save_folder, email,selected_files):
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
             )
+            # wait_on_index(st.session_state.index_name)
         else:
             print(f"Index already exists: {st.session_state.index_name}")
 

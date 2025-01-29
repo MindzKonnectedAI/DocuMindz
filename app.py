@@ -25,7 +25,7 @@ from ResponseGenerator.llmresponse import generate_response
 
 from Utils.utilities import temporary_success_message,save_file,disable,disableOff,list_files_in_directory,delete_file
 
-from Database.VectorDatabase.pinecone import pc,process_selected_files,list_existing_indexes
+from Database.VectorDatabase.pinecone import pc,process_selected_files,list_existing_indexes,wait_on_index,wait_on_namespace
 from Utils.session_states import initialize_session_states
 
 def main():
@@ -68,9 +68,8 @@ def main():
         except Exception as e :
             st.error(e)
 
-    
     selected_files = []
-    
+
     @st.dialog("Create Dossier", width="large")
     def create_dossier():
         try:
@@ -78,29 +77,33 @@ def main():
                 dossier_name = st.text_input("Dossier Name")
                 form_submitted = st.form_submit_button(label="Submit")
                 if form_submitted:
-                    # Check if the index exists
-                    existing_indexes = list_existing_indexes()
+                    with st.spinner(f'Creating Dossier "{dossier_name}"'):
+                        # Check if the index exists
+                        existing_indexes = list_existing_indexes()
 
-                    if not any(index.name == st.session_state.index_name for index in existing_indexes):
-                        print("Creating new index")
-                        # Create a new index if it doesn't already exist
-                        pc.create_index(
-                            name=st.session_state.index_name,
-                            dimension=3072,
-                            metric="cosine",
-                            spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                        if not any(index.name == st.session_state.index_name for index in existing_indexes):
+                            print("Creating new index")
+                            # Create a new index if it doesn't already exist
+                            pc.create_index(
+                                name=st.session_state.index_name,
+                                dimension=3072,
+                                metric="cosine",
+                                spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                            )
+                            wait_on_index(st.session_state.index_name)
+
+                        # Create a new dossier
+                        index = pc.Index(st.session_state.index_name)
+                        # Upsert a dummy vector to create the namespace
+                        index.upsert(
+                            vectors=[
+                                {"id": "dummy", "values": [0.1] * 3072}
+                            ],
+                            namespace=dossier_name,
                         )
-
-                    # Create a new dossier
-                    index = pc.Index(st.session_state.index_name)
-                    # Upsert a dummy vector to create the namespace
-                    index.upsert(
-                        vectors=[
-                            {"id": "dummy", "values": [0.1] * 3072}
-                        ],
-                        namespace=dossier_name,
-                    )
-                    st.rerun()
+                        # Wait until the namespace is created
+                        wait_on_namespace(st.session_state.index_name, dossier_name)
+                        st.rerun()
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
 
@@ -195,12 +198,12 @@ def main():
             )
 
         except Exception as e:
-            print("exception when trying to get namespaces :",e)
             st.session_state.namespace = st.sidebar.radio(
                 "Select Dossier to Chat",
                 dossierList,
                 label_visibility="collapsed"
             )
+            
 
         st.sidebar.button("Create Dossier",key=uuid.uuid4(),on_click=create_dossier)
 
