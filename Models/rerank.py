@@ -1,6 +1,8 @@
 from langchain_cohere import CohereRerank
 from cohere.client import Client as CohereClient
 import os
+from dotenv import load_dotenv  # .env file loading
+load_dotenv(override=True)
 
 # Cohere setup (for reranking)
 cohere_api_key = os.getenv("COHERE_API_KEY")

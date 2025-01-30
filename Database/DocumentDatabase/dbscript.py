@@ -1,6 +1,7 @@
 import pymongo
 import os
-
+from dotenv import load_dotenv  # .env file loading
+load_dotenv(override=True)
 # User credentials will be saved in 'new' database
 
 MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")

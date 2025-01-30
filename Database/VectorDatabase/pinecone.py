@@ -22,6 +22,9 @@ from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone libra
 
 from Utils.session_states import initialize_session_states
 
+from dotenv import load_dotenv  # .env file loading
+load_dotenv(override=True)
+
 # Initialize session states
 initialize_session_states()
 

@@ -1,5 +1,7 @@
 import os
 from langchain_openai import ChatOpenAI # OpenAI's Chat Model
+from dotenv import load_dotenv  # .env file loading
+load_dotenv(override=True)
 
 # OpenAI setup
 openai_api_key = os.getenv("OPENAI_API_KEY")
