@@ -14,7 +14,7 @@ import time
 from ResponseGenerator.summaries import create_text_summaries,create_image_summaries
 
 # Doc Store
-from DocStore.docstore import mongo_docstore
+from DocStore.docstore import get_mongo_docstore
 
 from PDFParser.PyMuPDF.extract_pdf_images import convert_image_array_to_documents
 
@@ -128,7 +128,7 @@ def create_vector_database(user_folder, file_paths,selected_files):
             # The retriever (empty to start)
             retriever = MultiVectorRetriever(
                 vectorstore=vectorstore,
-                docstore=mongo_docstore,
+                docstore=get_mongo_docstore(st.session_state.index_name),
                 id_key="doc_id",
             )
             if text_summaries:

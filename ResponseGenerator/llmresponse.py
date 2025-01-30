@@ -6,7 +6,7 @@ from Models.chat import llm
 import streamlit as st
 from Models.rerank import cohere_reranker
 from Database.VectorDatabase.pinecone import getVectorStore
-from DocStore.docstore import mongo_docstore
+from DocStore.docstore import get_mongo_docstore
 from langchain.retrievers.multi_vector import MultiVectorRetriever
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.chains import create_history_aware_retriever
@@ -226,7 +226,7 @@ def generate_response(prompt: str) :
                 
             retriever = MultiVectorRetriever(
                 vectorstore=vectorStore,
-                docstore=mongo_docstore,
+                docstore=get_mongo_docstore(st.session_state.index_name),
                 id_key="doc_id",
             )
 
