@@ -58,6 +58,12 @@ def list_files_in_directory(directory, selected_file_path):
         print(f"An unexpected error occurred: {e}")
         return [], []
     
+def get_namespace_to_delete():
+    if st.session_state.namespace=="Default":
+        return ""
+    else:
+        return st.session_state.namespace
+    
 # Function to delete a file
 def delete_file(file_path, selected_file_path, email, file):
     try:
@@ -80,10 +86,10 @@ def delete_file(file_path, selected_file_path, email, file):
                     # Delete Pinecone index if no files are left in selected files
                     if not selected_files:
                         index_name = st.session_state.index_name
-                        existing_indexes = pc.list_indexes()
-                        if any(index.name == index_name for index in existing_indexes):
-                            pc.delete_index(index_name)
-                            st.sidebar.success(f"Pinecone index for {file} deleted successfully!")
+                        index = pc.describe_index(index_name)
+                        described_index = pc.Index(host=index.host)
+                        described_index.delete(delete_all=True, namespace=get_namespace_to_delete())
+                        st.session_state.namespace = "Default"
     except Exception as e:
         st.sidebar.error(f"An error occurred while deleting the file: {e}")
 
