@@ -10,6 +10,30 @@ load_dotenv(override=True)
 # Initialize session states
 initialize_session_states()
 
+# def create_text_summaries(docs):
+#     print("inside create_text_summaries()")
+#     prompt_text = """
+#       You are an assistant tasked with summarizing tables and text.
+#       Give a concise summary of the table or text.
+
+#       Respond only with the summary, no additionnal comment.
+#       Do not start your message by saying "Here is a summary" or anything like that.
+#       Just give the summary as it is.
+
+#       Table or text chunk: {element} 
+
+#                  """
+#     prompt = ChatPromptTemplate.from_template(prompt_text)
+
+#     # Summary chain
+#     summarize_chain = {"element": lambda x: x} | prompt | llm | StrOutputParser()
+#     # Extract content from Document objects
+#     text_chunks = [doc.page_content for doc in docs]
+
+#     # Summarize text
+#     text_summaries = summarize_chain.batch(text_chunks, {"max_concurrency": 3}) #docs
+#     return text_summaries
+
 def create_text_summaries(docs):
     print("inside create_text_summaries()")
     prompt_text = """
@@ -26,12 +50,24 @@ def create_text_summaries(docs):
     prompt = ChatPromptTemplate.from_template(prompt_text)
 
     # Summary chain
-    summarize_chain = {"element": lambda x: x} | prompt | llm | StrOutputParser()
+    # for batch api 
+    # summarize_chain = {"element": lambda x: x} | prompt | llm | StrOutputParser()
+
+    # for invoke api
+    summarize_chain = prompt | llm | StrOutputParser()
+
     # Extract content from Document objects
     text_chunks = [doc.page_content for doc in docs]
 
     # Summarize text
-    text_summaries = summarize_chain.batch(text_chunks, {"max_concurrency": 3}) #docs
+
+    # text_summaries = summarize_chain.batch(text_chunks, {"max_concurrency": 3}) #docs
+    # return text_summaries
+
+    text_summaries=[]
+    for text in text_chunks:
+        summary = summarize_chain.invoke(text)
+        text_summaries.append(summary)
     return text_summaries
 
 def generate_caption_for_image(base_img, query):
