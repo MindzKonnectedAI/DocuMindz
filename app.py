@@ -97,7 +97,7 @@ def main():
                         # Upsert a dummy vector to create the namespace
                         index.upsert(
                             vectors=[
-                                {"id": "dummy", "values": [0.1] * 3072}
+                                {"id": "dummy", "values": [0.1] * 3072,"metadata":{"doc_id":str(uuid.uuid4()),"text":"this is dummy text"}}
                             ],
                             namespace=dossier_name,
                         )
