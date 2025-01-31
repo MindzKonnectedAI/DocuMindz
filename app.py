@@ -35,6 +35,7 @@ def main():
     set_verbose(True) 
     # Initialize session states
     initialize_session_states()
+    print("st.sessionstate.chathistories", st.session_state.chat_histories)
 
     # Page Configuration
     st.set_page_config("DocuMindz",":bookmark_tabs:")
@@ -257,7 +258,7 @@ def main():
         if prompt is not None and prompt !="" :
             existing_indexes = list_existing_indexes()
             if any(index.name == st.session_state.index_name for index in existing_indexes): 
-                st.session_state.chat_history.append(HumanMessage(prompt))
+                st.session_state.chat_history.append(HumanMessage(content=prompt))
                 with st.chat_message("Human"):
                     st.markdown(prompt)
 

@@ -29,7 +29,22 @@ def initialize_session_states():
     # Initialize chunking_strategy if not in session state
     if "chunking_strategy" not in st.session_state:
         st.session_state.chunking_strategy = "Semantic"
-
-    ### Statefully manage chat history ###
+    
+    # Initialize chat_history for the current dossier
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+        st.session_state.chat_history = []  # Default empty chat history
+        
+    ### Statefully manage chat history ###
+    if "chat_histories" not in st.session_state:
+        st.session_state.chat_histories = {}  # Dictionary to store chat histories per dossier
+        
+
+    if st.session_state.namespace not in st.session_state.chat_histories:
+        st.session_state.chat_histories[st.session_state.namespace] = []
+
+    # Ensure chat_history always refers to the current dossier
+    st.session_state.chat_history = st.session_state.chat_histories[st.session_state.namespace]
+
+        
+    
+    

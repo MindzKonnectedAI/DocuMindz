@@ -95,6 +95,13 @@ def delete_file(file_path, selected_file_path, email, file):
 
 def update_dossier():
     st.session_state.namespace = st.session_state.dossier_radio
+    
+    # if st.session_state.namespace not in st.session_state.chat_histories:
+    #     st.session_state.chat_histories[st.session_state.namespace] = []
+        
+    # # Set the current chat history to the selected dossier's chat history 
+    # st.session_state.chat_history = st.session_state.chat_histories[st.session_state.namespace]
+
 
 # Function to determine the default index
 def get_default_index(combined_dossiers):

@@ -192,7 +192,7 @@ def display_base64_image_in_streamlit(base64_code):
 def generate_response(prompt: str) :
     try:
         class ImageRequirementResponse(BaseModel):
-            Need_image: bool = Field(description="Whether the query asks for image or not")
+            Need_image: bool = Field(description="Whether the query asks for an image or not")
 
         parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
 
