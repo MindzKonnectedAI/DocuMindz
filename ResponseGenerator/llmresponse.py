@@ -20,6 +20,10 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
 from Utils.session_states import initialize_session_states
 
+from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+import os
+
 # Initialize session states
 initialize_session_states()
 
@@ -254,8 +258,25 @@ def generate_response(prompt: str) :
                 | StrOutputParser()
             )
         )
-
-        answer = chain_with_sources.invoke({"input":prompt,"chat_history":st.session_state.chat_history})
+        MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
+        
+        def get_session_history(session_id: str) -> MongoDBChatMessageHistory:
+            print("inside session history ",session_id)
+            return MongoDBChatMessageHistory(
+                MONGO_DB_CONN_STR , session_id, database_name="new", collection_name="history"
+            )
+        
+        with_message_history = RunnableWithMessageHistory(
+            chain_with_sources, 
+            get_session_history,
+            input_messages_key="input",
+            history_messages_key="chat_history",
+            output_messages_key="response",
+        )
+        
+        answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id": "ftyfhg"}},)
+        
+        
         for image in answer['context']['images']:
             display_base64_image_in_streamlit(image)
         return answer["response"]
