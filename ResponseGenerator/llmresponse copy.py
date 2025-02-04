@@ -83,20 +83,15 @@ def build_prompt(kwargs):
 
     # construct prompt with context (including images)
     prompt_template = f"""
-        Answer the question strictly based only on the following context. \n\n
+        Answer the question strictly based only on the following context: \n\n
         You may respond to basic greetings, but for all other queries, strictly adhere to the context provided below.\n\n
         If the required information is not found in the documents, respond with:
         "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
         \n\n
+        Context: \n\n{context_text}
     """
 
-    final_user_question = f"""
-    Context: \n\n{context_text}
-    Question: \n\n
-    {user_question}
-    """
-
-    prompt_content = [{"type": "text", "text": final_user_question}]
+    prompt_content = [{"type": "text", "text": prompt_template}]
 
     if len(docs_by_type["images"]) > 0:
         for image in docs_by_type["images"]:
@@ -109,9 +104,9 @@ def build_prompt(kwargs):
 
     return ChatPromptTemplate.from_messages(
         [
-            SystemMessage(content=prompt_template),
+            SystemMessage(content=prompt_content),
             MessagesPlaceholder("chat_history"),
-            ("human",final_user_question),
+            ("human",user_question),
         ]
     )
 
