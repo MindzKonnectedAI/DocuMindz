@@ -76,21 +76,38 @@ def build_prompt(kwargs):
     user_question = kwargs["question"]
 
 
-    context_text = ""
-    if len(docs_by_type["texts"]) > 0:
-        for text_element in docs_by_type["texts"]:
-            context_text += text_element
+    # context_text = ""
+    # if len(docs_by_type["texts"]) > 0:
+    #     for text_element in docs_by_type["texts"]:
+    #         context_text += text_element
+
+    # # construct prompt with context (including images)
+    # prompt_template = f"""
+    #     You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+    #     structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+    #     If the required information is not found in the documents, respond with:
+    #     "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+    #     You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+    #     \n\n
+    #     **Context** : {context_text}
+    # """
+
+    # Safely join text without using f-strings
+    context_text = "".join(docs_by_type["texts"]) if docs_by_type["texts"] else ""
+    
+    # Ensure special characters like `{}`, `[]`, `<`, `&` do not break the prompt
+    context_text = context_text.replace("{", "{{").replace("}", "}}")
 
     # construct prompt with context (including images)
-    prompt_template = f"""
+    prompt_template = """ 
         You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
         structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
         If the required information is not found in the documents, respond with:
         "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
         You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
-        \n\n
-        **Context** : {context_text}
-    """
+
+        **Context** : {context}
+    """.format(context=context_text)
 
     prompt_content = [{"type": "text", "text": prompt_template}]
 
