@@ -1,6 +1,8 @@
 import pymongo
 import os
 from dotenv import load_dotenv  # .env file loading
+from langchain_mongodb.chat_message_histories import MongoDBChatMessageHistory
+
 load_dotenv(override=True)
 # User credentials will be saved in 'new' database
 
@@ -17,3 +19,9 @@ db = client.new
 
 # Users collection ( Collection Name)
 collection = db.new
+
+def get_chat_history(session_id: str) -> MongoDBChatMessageHistory:
+    mongo_db_chat_message_history= MongoDBChatMessageHistory(
+        MONGO_DB_CONN_STR , session_id, database_name="new", collection_name="history"
+    ).messages
+    return mongo_db_chat_message_history

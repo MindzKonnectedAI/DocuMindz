@@ -10,7 +10,7 @@ from pinecone import ServerlessSpec  # Pinecone as Vector DB (Pinecone's Python 
 
 # Authentication & Database
 import streamlit_authenticator_mongo as stauth
-from Database.DocumentDatabase.dbscript import collection
+from Database.DocumentDatabase.dbscript import collection,get_chat_history
 from streamlit_authenticator_mongo.validator import Validator
 from streamlit_authenticator_mongo.hasher import Hasher
 
@@ -35,7 +35,6 @@ def main():
     set_verbose(True) 
     # Initialize session states
     initialize_session_states()
-    print("st.sessionstate.chathistories", st.session_state.chat_histories)
 
     # Page Configuration
     st.set_page_config("DocuMindz",":bookmark_tabs:")
@@ -244,8 +243,10 @@ def main():
 
         authenticator.logout('Logout', 'sidebar','logout-key')
 
+        chat_history = get_chat_history(st.session_state.namespace+"_"+st.session_state.session_id)
+
         # Conversation History
-        for message in st.session_state.chat_history:
+        for message in chat_history:
             if isinstance(message,HumanMessage):
                 with st.chat_message("Human"):
                     st.markdown(message.content)
@@ -258,7 +259,6 @@ def main():
         if prompt is not None and prompt !="" :
             existing_indexes = list_existing_indexes()
             if any(index.name == st.session_state.index_name for index in existing_indexes): 
-                st.session_state.chat_history.append(HumanMessage(content=prompt))
                 with st.chat_message("Human"):
                     st.markdown(prompt)
 
@@ -268,7 +268,6 @@ def main():
                     with st.chat_message("AI"):
                         ai_response = generate_response(prompt)
                         st.markdown(ai_response)
-                        st.session_state.chat_history.append(AIMessage(ai_response))
                         # ai_response = st.write_stream(generate_response(prompt))
                     # st.session_state.chat_history.append(AIMessage(ai_response))
             else:

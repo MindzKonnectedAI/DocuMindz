@@ -83,20 +83,16 @@ def build_prompt(kwargs):
 
     # construct prompt with context (including images)
     prompt_template = f"""
-        Answer the question strictly based only on the following context. \n\n
-        You may respond to basic greetings, but for all other queries, strictly adhere to the context provided below.\n\n
+        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
         If the required information is not found in the documents, respond with:
         "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+        You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
         \n\n
+        **Context** : {context_text}
     """
 
-    final_user_question = f"""
-    Context: \n\n{context_text}
-    Question: \n\n
-    {user_question}
-    """
-
-    prompt_content = [{"type": "text", "text": final_user_question}]
+    prompt_content = [{"type": "text", "text": prompt_template}]
 
     if len(docs_by_type["images"]) > 0:
         for image in docs_by_type["images"]:
@@ -109,9 +105,9 @@ def build_prompt(kwargs):
 
     return ChatPromptTemplate.from_messages(
         [
-            SystemMessage(content=prompt_template),
+            ("system",prompt_template),
             MessagesPlaceholder("chat_history"),
-            ("human",final_user_question),
+            ("human",user_question),
         ]
     )
 
@@ -210,8 +206,10 @@ def generate_response(prompt: str) :
             history_messages_key="chat_history",
             output_messages_key="response",
         )
-        
-        answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id": "ftyfhg"}},)
+        dossier_session_id=st.session_state.namespace+"_"+st.session_state.session_id
+        print("dossier_session_id :",dossier_session_id)
+
+        answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
         
         
         for image in answer['context']['images']:
