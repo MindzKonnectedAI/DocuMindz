@@ -11,4 +11,5 @@ llm = ChatOpenAI(
     temperature=0,
     model="gpt-4o-mini",
     streaming=True,
+    cache=False
 )

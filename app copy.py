@@ -22,7 +22,6 @@ import uuid
 
 # Response Generator function
 from ResponseGenerator.llmresponse import generate_response
-from Cache.llm_cache import get_mongo_cache
 
 from Models.chat import llm
 
@@ -31,18 +30,23 @@ from Utils.utilities import temporary_success_message,save_file,disable,disableO
 from Database.VectorDatabase.pinecone import pc,process_selected_files,list_existing_indexes,wait_on_index,wait_on_namespace
 from Utils.session_states import initialize_session_states
 from langchain.globals import set_llm_cache 
+from langchain_mongodb.cache import MongoDBCache
 from typing import Any, Dict, Optional, Sequence
 from langchain_core.outputs import Generation
 
 def main():
-    
+    MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
     # defaults
     load_dotenv(override=True)
     nest_asyncio.apply()
     set_verbose(True) 
     # Initialize session states
     initialize_session_states()
-    mongo_cache = get_mongo_cache()
+    mongo_cache = MongoDBCache( 
+        connection_string=MONGO_DB_CONN_STR,
+        database_name="rag_cache_db",
+        collection_name="rag_cache",
+    )
 
     # Example function to generate AI response and convert it
     def convert_to_generation(ai_response: str) -> Sequence[Generation]:
@@ -289,7 +293,7 @@ def main():
                     st.error("Please upload some files first!")
                 else:
                     with st.chat_message("AI"):
-                        ai_response = generate_response(prompt,str(llm.to_json()))
+                        ai_response = generate_response(prompt)
                         st.markdown(ai_response)
                         converted_response = convert_to_generation(ai_response)
                         # print("llm_tojson :",str(llm.to_json()))
