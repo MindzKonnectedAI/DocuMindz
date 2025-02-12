@@ -31,7 +31,7 @@ from langchain_core.outputs import Generation
 # Initialize session states
 initialize_session_states()
 
-def parse_docs(docs,need_image):
+def parse_docs(docs,need_image= False):
     """
     Split base64-encoded images and texts.
         
@@ -103,15 +103,31 @@ def build_prompt(kwargs):
     context_text = context_text.replace("{", "{{").replace("}", "}}")
 
     # construct prompt with context (including images)
-    prompt_template = """ 
-        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
-        If the required information is not found in the documents, respond with:
-        "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
-        You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+    # prompt_template = """ 
+    #     You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+    #     structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+    #     If the required information is not found in the documents, respond with:
+        
+    #     "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+        
+    #     You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
-        **Context** : {context}
-    """.format(context=context_text)
+    #     **Context** : {context}
+    # """.format(context=context_text)
+    prompt_template = """  
+            You are a highly specialized document analysis assistant with expertise in extracting and synthesizing information from structured text, tables, and visual elements within provided PDF documents. Additionally, you possess advanced mathematical reasoning and calculation capabilities.  
+
+            **Guidelines for Responses:**  
+            - Your answers should be precise, context-rich, and strictly based on the provided document content.  
+            - If the required information is not found in the documents, respond with:  
+
+            *"I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."*  
+
+            - You may respond to basic greetings, but for all other queries, adhere strictly to the document content.  
+
+            **Context:**  
+            {context}  
+            """.format(context=context_text)
 
     prompt_content = [{"type": "text", "text": prompt_template}]
 
@@ -165,22 +181,34 @@ def generate_response(prompt: str,llm_string: str) :
             return ai_message
         else:
             class ImageRequirementResponse(BaseModel):
-                Need_image: bool = Field(description="Whether the query asks for an image or not")
+                Need_image: bool = Field(description="Classification of the query as 'text', 'image', or 'both'")
 
             parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
 
             def classify_query_needs_image(prompt: str) -> str:
                 """Classifies whether the query requires an image or not."""
                 classifier_prompt = PromptTemplate(
+                    # template="""
+                    # You are an AI classifier. Your task is to determine if the given query requires an image in the response. 
+                    # An image is needed if the query mentions or implies visual elements such as diagrams, pictures, logos, maps, 
+                    # or asks about how something looks, appears, or is represented visually.
+
+                    # {format_instructions}
+
+                    # Query: "{prompt}"
+                    # """,
                     template="""
-                    You are an AI classifier. Your task is to determine if the given query requires an image in the response. 
-                    An image is needed if the query mentions or implies visual elements such as diagrams, pictures, logos, maps, 
-                    or asks about how something looks, appears, or is represented visually.
+                            You are an AI classifier. Your task is to determine whether the given query requires:
+                            - Only text (if the query asks for explanations, descriptions, or non-visual answers).
+                            - Only an image (if the query explicitly asks for a picture, diagram, graph, or any other visual representation).
+                            - Both text and image (if the query requires a combination of explanation and visual representation).
 
-                    {format_instructions}
+                            Return one of the following: "text", "image", or "both".
+                            {format_instructions}
 
-                    Query: "{prompt}"
-                    """,
+                            Query: "{prompt}"
+                            Classification:
+                            """,
                     input_variables=["prompt"],
                     partial_variables={"format_instructions": parser.get_format_instructions()},
                 )
@@ -246,7 +274,7 @@ def generate_response(prompt: str,llm_string: str) :
             print("dossier_session_id :",dossier_session_id)
 
             answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
-        
+            
             for image in answer['context']['images']:
                 display_base64_image_in_streamlit(image)
             return answer["response"]

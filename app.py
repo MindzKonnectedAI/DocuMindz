@@ -34,14 +34,31 @@ from langchain.globals import set_llm_cache
 from typing import Any, Dict, Optional, Sequence
 from langchain_core.outputs import Generation
 
-def main():
-    
+
+
+def setup_environment():
     # defaults
     load_dotenv(override=True)
     nest_asyncio.apply()
-    set_verbose(True) 
+    set_verbose(True)
     # Initialize session states
     initialize_session_states()
+
+def setup_authentication():
+    # validator = Validator()
+    with open('./config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
+    authenticator = stauth.Authenticate(
+        collection,
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days'],
+    )
+    return authenticator
+
+def main():
+    
+    setup_environment()
     mongo_cache = get_mongo_cache()
 
     # Example function to generate AI response and convert it
@@ -70,16 +87,17 @@ def main():
     validator = Validator()
 
     # config file of stauth package
-    with open('./config.yaml') as file:
-        config = yaml.load(file, Loader=SafeLoader)
+    # with open('./config.yaml') as file:
+    #     config = yaml.load(file, Loader=SafeLoader)
     
-    # authenticator setup
-    authenticator = stauth.Authenticate(
-        collection,
-        config['cookie']['name'],
-        config['cookie']['key'],
-        config['cookie']['expiry_days'],
-    )        
+    # # authenticator setup
+    # authenticator = stauth.Authenticate(
+    #     collection,
+    #     config['cookie']['name'],
+    #     config['cookie']['key'],
+    #     config['cookie']['expiry_days'],
+    # )    
+    authenticator = setup_authentication()    
 
     def _register_credentials(email: str, name: str, password: str):
         if not validator.validate_name(name):
