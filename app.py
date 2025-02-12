@@ -181,7 +181,11 @@ def main():
 
         with st.sidebar.form(key='sidebar_form'):
             # Allow the user to upload a file
-            uploaded_files = st.file_uploader("Select documents", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
+            st.sidebar.radio("File Type",["PDF","Markdown"],key="file_type")
+            allowed_type = ["pdf"] if st.session_state.file_type == "PDF" else ["md"]
+
+            # Allow the user to upload a file
+            uploaded_files = st.file_uploader("Select documents", type=allowed_type, key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
             # If a file was uploaded, display its contents
             if uploaded_files:
                 for uploaded_file in uploaded_files:

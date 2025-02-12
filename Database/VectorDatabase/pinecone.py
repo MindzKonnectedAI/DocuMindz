@@ -23,6 +23,7 @@ from langchain_pinecone import PineconeVectorStore  # Langchain's Pinecone libra
 from Utils.session_states import initialize_session_states
 
 from dotenv import load_dotenv  # .env file loading
+
 load_dotenv(override=True)
 
 # Initialize session states
@@ -91,70 +92,108 @@ def create_vector_database(user_folder, file_paths,selected_files):
         print("Inside create_vector_database function")
             
         for file_path, file_name in zip(file_paths, selected_files):
-                
-            parsed_data, unique_xref_array = parse_pdf(file_path, user_folder)
-            # print ('parsed_Data', parsed_data)
-            # print ('unique_xref_Array', unique_xref_array)
-            docs = []
-
-            if(st.session_state.chunking_strategy=="Recursive"):
-                ## Recursive Chunking 
-                recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
-                chunked_texts = recursive_text_splitter.split_text(parsed_data)
-                
-            elif(st.session_state.chunking_strategy=="Semantic"):
-                ## Semantic Chunking
-                semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
-                chunked_texts = semantic_text_splitter.split_text(parsed_data)
-
-            # Convert chunks to LangChain Document objects
-            # docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
-            docs = [Document(page_content=text) for text in chunked_texts]
-
-            text_summaries= create_text_summaries(docs) #-> return text summaries 
-            print ('length of text summary', len(text_summaries)) 
-            # print ('this is text summary',text_summaries) 
-
-            image_summaries= create_image_summaries(unique_xref_array) #-> return image summaries
-            print ('length of image summary', len(image_summaries))
-            # print ('this is image summary', image_summaries)
-
-            # Pinecone setup (for vector storage)
-            vectorstore = getVectorStore()
             
-            # The storage layer for the parent documents
-            id_key = "doc_id"
+            if file_name.endswith(".pdf"):
+                print(f"Processing PDF file_type: {file_name}")
                 
-            # The retriever (empty to start)
+                parsed_data, unique_xref_array = parse_pdf(file_path, user_folder)
+                # print ('parsed_Data', parsed_data)
+                # print ('unique_xref_Array', unique_xref_array)
+                docs = []
+
+                if(st.session_state.chunking_strategy=="Recursive"):
+                    ## Recursive Chunking 
+                    recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+                    chunked_texts = recursive_text_splitter.split_text(parsed_data)
+                    
+                elif(st.session_state.chunking_strategy=="Semantic"):
+                    ## Semantic Chunking
+                    semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
+                    chunked_texts = semantic_text_splitter.split_text(parsed_data)
+
+                # Convert chunks to LangChain Document objects
+                # docs = [Document(page_content=text, metadata={"source": file_name}) for text in chunked_texts]
+                docs = [Document(page_content=text) for text in chunked_texts]
+
+                text_summaries= create_text_summaries(docs) #-> return text summaries 
+                print ('length of text summary', len(text_summaries)) 
+                # print ('this is text summary',text_summaries) 
+
+                image_summaries= create_image_summaries(unique_xref_array) #-> return image summaries
+                print ('length of image summary', len(image_summaries))
+                # print ('this is image summary', image_summaries)
+            
+            elif file_name.endswith(".md"):
+                # New logic for Markdown files
+                print(f"Processing Markdown file: {file_name}")
+                
+                with open(file_path,"r",encoding="utf-8") as md_file:
+                    md_content =md_file.read()
+                    print("type is ",type(md_content))
+                    print(f"Mardown content;\n{md_content}")
+                    
+                if(st.session_state.chunking_strategy=="Recursive"):
+                    ## Recursive Chunking 
+                    recursive_text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100, separators=["\n\n", "\n", " ", ""])
+                    chunked_texts = recursive_text_splitter.split_text(md_content)
+                    
+                elif(st.session_state.chunking_strategy=="Semantic"):
+                    ## Semantic Chunking
+                    semantic_text_splitter = SemanticChunker(embeddings=embeddings,breakpoint_threshold_amount=85)
+                    chunked_texts = semantic_text_splitter.split_text(md_content)
+                
+                docs = [Document(page_content=text) for text in chunked_texts]
+                
+                print("Rucursive splitter ",docs)
+                
+                
+                # docs = [Document(page_content=md_content)]
+                text_summaries = create_text_summaries(docs)
+                
+                print('Length of text summary:', len(text_summaries))
+
+                # No image summaries for Markdown files
+                image_summaries=[]
+               
+            else : 
+                print(f"Unsupported file type: {file_name}")
+                continue  
+                # Pinecone setup (for vector storage)
+            vectorstore = getVectorStore()
+                
+                # The storage layer for the parent documents
+            id_key = "doc_id"
+                    
+                # The retriever (empty to start)
             retriever = MultiVectorRetriever(
                 vectorstore=vectorstore,
                 docstore=get_mongo_docstore(st.session_state.index_name),
                 id_key="doc_id",
-            )
+                )
             if text_summaries:
-                # Add texts
+                    # Add texts
                 doc_ids = [str(uuid.uuid4()) for _ in docs]
                 summary_texts = [
-                    Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
+                     Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
                 ]
                 retriever.vectorstore.add_documents(summary_texts)
                 retriever.docstore.mset(list(zip(doc_ids, docs)))
 
             if image_summaries:  
-                final_array = convert_image_array_to_documents(unique_xref_array)
-                # Add image summaries
-                img_ids = [str(uuid.uuid4()) for _ in final_array]
-                summary_img = [
-                    Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
-                ]
-                retriever.vectorstore.add_documents(summary_img)
-                retriever.docstore.mset(list(zip(img_ids, final_array)))  
-                    
+                    final_array = convert_image_array_to_documents(unique_xref_array)
+                    # Add image summaries
+                    img_ids = [str(uuid.uuid4()) for _ in final_array]
+                    summary_img = [
+                        Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
+                    ]
+                    retriever.vectorstore.add_documents(summary_img)
+                    retriever.docstore.mset(list(zip(img_ids, final_array)))  
+                        
             print(file_name+" upserted to Pinecone successfully")
-        return
+            return
     except Exception as e:
-        print(f"Error details: {str(e)}")
-        st.error(f"An error occurred while creating the vector database: {e}")
+            print(f"Error details: {str(e)}")
+            st.error(f"An error occurred while creating the vector database: {e}")
 
     
 def process_selected_files(save_folder, email,selected_files):
