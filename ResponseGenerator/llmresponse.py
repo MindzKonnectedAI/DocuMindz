@@ -27,11 +27,13 @@ import os
 from typing import Any, Callable, Dict, Optional, Union
 from typing import Any, Dict, Optional, Sequence, Tuple
 from langchain_core.outputs import Generation
+import json 
+from langchain.output_parsers.json import SimpleJsonOutputParser
 
 # Initialize session states
 initialize_session_states()
 
-def parse_docs(docs,need_image):
+def parse_docs(docs,need_image= False):
     """
     Split base64-encoded images and texts.
         
@@ -131,6 +133,33 @@ def build_prompt(kwargs):
             ("human",user_question),
         ]
     )
+    
+def  build_prompt_markdown(kwargs):
+    
+    docs_by_type = kwargs["context"]
+    user_question = kwargs["question"]
+    
+     # Extract text-based context
+    context_text = "".join(docs_by_type["texts"]) if docs_by_type["texts"] else ""
+    context_text = context_text.replace("{", "{{").replace("}", "}}")  # Escaping brackets
+    
+    system_prompt = """
+    Ensure the response always follows a JSON structure.\n
+    If the required information is not found in the context, respond with:\n
+    "I cannot locate specific information in the provided context." \n
+    
+    **Context:**\n\n
+      {context} 
+    """.format(context=context_text)
+    
+    template = ChatPromptTemplate.from_messages(
+        [
+            ("system", system_prompt),
+            MessagesPlaceholder("chat_history"),
+            ("human", user_question),
+        ]
+    )
+    return template    
 
 def display_base64_image_in_streamlit(base64_code):
     """
@@ -155,101 +184,183 @@ def generations_to_string(generations: Optional[Sequence[Generation]]) -> str:
 
 def generate_response(prompt: str,llm_string: str) :
     try:
-        mongo_cache = get_mongo_cache()
-        lookupResponse = mongo_cache.lookup(prompt,llm_string)
-        if lookupResponse:
-            chat_history = get_current_session_history()
-            chat_history.add_user_message(prompt)
-            ai_message = generations_to_string(lookupResponse)
-            chat_history.add_ai_message(ai_message)
-            return ai_message
-        else:
-            class ImageRequirementResponse(BaseModel):
-                Need_image: bool = Field(description="Whether the query asks for an image or not")
+        print("st.session_state.Outout_Type",st.session_state.Output_Type)
+        if st.session_state.Output_Type  =="String":
+            mongo_cache = get_mongo_cache()
+            lookupResponse = mongo_cache.lookup(prompt,llm_string)
+            if lookupResponse:
+                chat_history = get_current_session_history()
+                chat_history.add_user_message(prompt)
+                ai_message = generations_to_string(lookupResponse)
+                chat_history.add_ai_message(ai_message)
+                return ai_message
+            else:
+                class ImageRequirementResponse(BaseModel):
+                    Need_image: bool = Field(description="Classification of the query as 'text', 'image', or 'both'")
 
-            parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
+                parser = JsonOutputParser(pydantic_object=ImageRequirementResponse)
 
-            def classify_query_needs_image(prompt: str) -> str:
-                """Classifies whether the query requires an image or not."""
-                classifier_prompt = PromptTemplate(
-                    template="""
-                    You are an AI classifier. Your task is to determine if the given query requires an image in the response. 
-                    An image is needed if the query mentions or implies visual elements such as diagrams, pictures, logos, maps, 
-                    or asks about how something looks, appears, or is represented visually.
+                def classify_query_needs_image(prompt: str) -> str:
+                    """Classifies whether the query requires an image or not."""
+                    classifier_prompt = PromptTemplate(
+                      
+                        template="""
+                                You are an AI classifier. Your task is to determine whether the given query requires:
+                                - Only text (if the query asks for explanations, descriptions, or non-visual answers).
+                                - Only an image (if the query explicitly asks for a picture, diagram, graph, or any other visual representation).
+                                - Both text and image (if the query requires a combination of explanation and visual representation).
 
-                    {format_instructions}
+                                Return one of the following: "text", "image", or "both".
+                                {format_instructions}
 
-                    Query: "{prompt}"
-                    """,
-                    input_variables=["prompt"],
-                    partial_variables={"format_instructions": parser.get_format_instructions()},
+                                Query: "{prompt}"
+                                Classification:
+                                """,
+                        input_variables=["prompt"],
+                        partial_variables={"format_instructions": parser.get_format_instructions()},
+                    )
+                    chain = classifier_prompt | llm | parser
+                    result = chain.invoke({"prompt": prompt})
+                    print("result :",result)
+                    return result["Need_image"]
+
+                need_image = classify_query_needs_image(prompt)     
+
+                contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
+
+                # Reranker 
+                def reRanker():
+                    vectorStore = getVectorStore()
+                        
+                    retriever = MultiVectorRetriever(
+                        vectorstore=vectorStore,
+                        docstore=get_mongo_docstore(st.session_state.index_name),
+                        id_key="doc_id",
+                    )
+
+                    compression_retriever = ContextualCompressionRetriever(
+                        base_compressor=cohere_reranker,
+                        base_retriever=retriever,
+                    )
+
+                    return compression_retriever
+
+                compression_retriever = reRanker()
+
+                history_aware_retriever = create_history_aware_retriever(
+                    llm, compression_retriever, contextualize_q_prompt
                 )
-                chain = classifier_prompt | llm | parser
-                result = chain.invoke({"prompt": prompt})
-                print("result :",result)
-                return result["Need_image"]
 
-            need_image = classify_query_needs_image(prompt)     
+                chain_with_sources = {
+                    "context": history_aware_retriever | RunnableLambda(lambda docs: parse_docs(docs, need_image=need_image)), # {"images": b64_images, "texts": text_contents}
+                    "question": itemgetter("input"),
+                    "chat_history": itemgetter("chat_history"), 
+                } | RunnablePassthrough().assign(
+                    response=(
+                        RunnableLambda(build_prompt)
+                        | llm
+                        | StrOutputParser()
+                    )
+                )
+                MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
+                
+                def get_session_history(session_id: str) -> MongoDBChatMessageHistory:
+                    print("inside session history ",session_id)
+                    return MongoDBChatMessageHistory(
+                        MONGO_DB_CONN_STR , session_id, database_name="new", collection_name="history"
+                    )
+                
+                with_message_history = RunnableWithMessageHistory(
+                    chain_with_sources, 
+                    get_session_history,
+                    input_messages_key="input",
+                    history_messages_key="chat_history",
+                    output_messages_key="response",
+                )
+                dossier_session_id=f"{st.session_state.namespace}"+"_"+st.session_state.session_id
+                print("dossier_session_id :",dossier_session_id)
 
-            contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
-
-            # Reranker 
-            def reRanker():
-                vectorStore = getVectorStore()
+                answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
+                
+                for image in answer['context']['images']:
+                    display_base64_image_in_streamlit(image)
                     
-                retriever = MultiVectorRetriever(
-                    vectorstore=vectorStore,
-                    docstore=get_mongo_docstore(st.session_state.index_name),
-                    id_key="doc_id",
-                )
-
-                compression_retriever = ContextualCompressionRetriever(
-                    base_compressor=cohere_reranker,
-                    base_retriever=retriever,
-                )
-
-                return compression_retriever
-
-            compression_retriever = reRanker()
-
-            history_aware_retriever = create_history_aware_retriever(
-                llm, compression_retriever, contextualize_q_prompt
-            )
-
-            chain_with_sources = {
-                "context": history_aware_retriever | RunnableLambda(lambda docs: parse_docs(docs, need_image=need_image)), # {"images": b64_images, "texts": text_contents}
-                "question": itemgetter("input"),
-                "chat_history": itemgetter("chat_history"), 
-            } | RunnablePassthrough().assign(
-                response=(
-                    RunnableLambda(build_prompt)
-                    | llm
-                    | StrOutputParser()
-                )
-            )
-            MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
             
-            def get_session_history(session_id: str) -> MongoDBChatMessageHistory:
-                print("inside session history ",session_id)
-                return MongoDBChatMessageHistory(
-                    MONGO_DB_CONN_STR , session_id, database_name="new", collection_name="history"
-                )
-            
-            with_message_history = RunnableWithMessageHistory(
-                chain_with_sources, 
-                get_session_history,
-                input_messages_key="input",
-                history_messages_key="chat_history",
-                output_messages_key="response",
-            )
-            dossier_session_id=st.session_state.namespace+"_"+st.session_state.session_id
-            print("dossier_session_id :",dossier_session_id)
+                return answer["response"]
+        elif st.session_state.Output_Type == "JSON":
+            print("st.session_state.Output_Type",st.session_state.Output_Type)
+            mongo_cache = get_mongo_cache()
+            lookupResponse = mongo_cache.lookup(prompt, llm_string)
+            if lookupResponse:
+                chat_history = get_current_session_history()
+                chat_history.add_user_message(prompt)
+                ai_message = generations_to_string(lookupResponse)
+                chat_history.add_ai_message(ai_message)
+                return ai_message
+            else:
+                
+                contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
+                
+                def reRanker():
+                    vectoreStore = getVectorStore()
+                    
+                    retriever = MultiVectorRetriever(
+                        vectorstore=vectoreStore,
+                        docstore=get_mongo_docstore(st.session_state.index_name),
+                        
+                        id_key ="doc_id",
+                        )
+                    compression_retriever = ContextualCompressionRetriever(
+                        base_compressor=cohere_reranker,
+                        base_retriever=retriever,
+                    )
+                    
+                    return compression_retriever
+                
+                compression_retriever = reRanker()
 
-            answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
-        
-            for image in answer['context']['images']:
-                display_base64_image_in_streamlit(image)
-            return answer["response"]
+                history_aware_retriever = create_history_aware_retriever(
+                    llm, compression_retriever, contextualize_q_prompt
+                )
+
+                json_parser = SimpleJsonOutputParser()
+
+
+                chain_with_sources = {
+                    "context": history_aware_retriever | RunnableLambda(lambda docs: parse_docs(docs)), # {"images": b64_images, "texts": text_contents}
+                    "question": itemgetter("input"),
+                    "chat_history": itemgetter("chat_history"), 
+                } | RunnablePassthrough().assign(
+                    response=(
+                        RunnableLambda(build_prompt_markdown)
+                        | llm | json_parser
+                    )
+                )
+                MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
+                
+                def get_session_history(session_id: str) -> MongoDBChatMessageHistory:
+                    print("inside session history ", session_id)
+                    return MongoDBChatMessageHistory(
+                        MONGO_DB_CONN_STR , session_id, database_name="new", collection_name="history"
+                    )
+                
+                with_message_history = RunnableWithMessageHistory(
+                    chain_with_sources, 
+                    get_session_history,
+                    input_messages_key="input",
+                    history_messages_key="chat_history",
+                    output_messages_key="response",  # response is not a dictionary in this case, therefore it is not getting added to the chat history
+                )
+                dossier_session_id=st.session_state.namespace+"_"+st.session_state.session_id
+                print("dossier_session_id :", dossier_session_id)
+
+                answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
+                print("Answer is ", answer)
+                
+                
+                return answer["response"]
+            
+                     
     except Exception as e:
         st.error(f"An error occurred while generating the response: {e}")
 
