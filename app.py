@@ -199,7 +199,15 @@ def main():
 
         with st.sidebar.form(key='sidebar_form'):
             # Allow the user to upload a file
-            uploaded_files = st.file_uploader("Select documents", type=["pdf"], key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
+            
+            #############changes #############################
+            st.sidebar.radio("Output Type",["String","JSON"],key="Output_Type")
+            ######################## allowed type pdf,md ##############################
+            allowed_type = ["pdf","md"]
+            
+            print("st.st.session_state.Output_Type",st.session_state.Output_Type)
+            
+            uploaded_files = st.file_uploader("Select documents", type=allowed_type, key=st.session_state["file_uploader_key"], disabled=st.session_state.disabled, accept_multiple_files=True)
             # If a file was uploaded, display its contents
             if uploaded_files:
                 for uploaded_file in uploaded_files:
@@ -310,9 +318,10 @@ def main():
                     with st.chat_message("AI"):
                         ai_response = generate_response(stripped_prompt,str(llm.to_json()))
                         st.markdown(ai_response)
-                        converted_response = convert_to_generation(ai_response)
-                        # print("llm_tojson :",str(llm.to_json()))
-                        mongo_cache.update(stripped_prompt,str(llm.to_json()),converted_response)
+                        if ai_response:
+                            converted_response = convert_to_generation(str(ai_response))
+                            # print("llm_tojson :",str(llm.to_json()))
+                            mongo_cache.update(stripped_prompt,str(llm.to_json()),converted_response)
                         # ai_response = st.write_stream(generate_response(prompt))
                     # st.session_state.chat_history.append(AIMessage(ai_response))
             else:

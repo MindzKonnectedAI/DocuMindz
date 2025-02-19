@@ -30,6 +30,10 @@ def initialize_session_states():
     # Initialize chunking_strategy if not in session state
     if "chunking_strategy" not in st.session_state:
         st.session_state.chunking_strategy = "Semantic"
+        
+        
+    if "Output_Type" not in  st.session_state:
+        st.session_state.Output_Type = "String"
     
     # # Initialize chat_history for the current dossier
     # if "chat_history" not in st.session_state:
