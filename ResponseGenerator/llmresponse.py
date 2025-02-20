@@ -46,6 +46,8 @@ def parse_docs(docs,need_image= False):
             "texts" containing textual content.
     """
     print(f"Received {len(docs)} documents for parsing.")
+    
+            
 
     base64_pattern = re.compile(r'^[A-Za-z0-9+/]+={0,2}$')
     b64_images = []
@@ -105,15 +107,31 @@ def build_prompt(kwargs):
     context_text = context_text.replace("{", "{{").replace("}", "}}")
 
     # construct prompt with context (including images)
-    prompt_template = """ 
-        You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
-        structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
-        If the required information is not found in the documents, respond with:
-        "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
-        You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
+    # prompt_template = """ 
+    #     You are a specialized document analysis assistant designed to provide precise, context-rich answers by synthesizing information from tables, 
+    #     structured text, and visual elements within provided PDF documents. You also possess advanced mathematical reasoning and calculation capabilities.
+    #     If the required information is not found in the documents, respond with:
+        
+    #     "I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."
+        
+    #     You may respond to basic greetings, but for all other queries, strictly adhere to the provided document content.
 
-        **Context** : {context}
-    """.format(context=context_text)
+    #     **Context** : {context}
+    # """.format(context=context_text)
+    prompt_template = """  
+            You are a highly specialized document analysis assistant with expertise in extracting and synthesizing information from structured text, tables, and visual elements within provided PDF documents. Additionally, you possess advanced mathematical reasoning and calculation capabilities.  
+
+            **Guidelines for Responses:**  
+            - Your answers should be precise, context-rich, and strictly based on the provided document content.  
+            - If the required information is not found in the documents, respond with:  
+
+            *"I cannot locate specific information about this in the provided PDF documents. Please verify if this information is included or consider rephrasing your question."*  
+
+            - You may respond to basic greetings, but for all other queries, adhere strictly to the document content.  
+
+            **Context:**  
+            {context}  
+            """.format(context=context_text)
 
     prompt_content = [{"type": "text", "text": prompt_template}]
 
@@ -180,12 +198,15 @@ def generations_to_string(generations: Optional[Sequence[Generation]]) -> str:
     if generations is None:
         return ""  # Return an empty string if no result found
     
-    return " ".join(gen.text for gen in generations)
+    return " ".join(gen.text for gen in generations if gen.text)
+
+
 
 def generate_response(prompt: str,llm_string: str) :
     try:
-        print("st.session_state.Outout_Type",st.session_state.Output_Type)
+        
         if st.session_state.Output_Type  =="String":
+            print("st.session_state.Outout_Type",st.session_state.Output_Type)
             mongo_cache = get_mongo_cache()
             lookupResponse = mongo_cache.lookup(prompt,llm_string)
             if lookupResponse:
@@ -323,7 +344,6 @@ def generate_response(prompt: str,llm_string: str) :
                     llm, compression_retriever, contextualize_q_prompt
                 )
 
-                json_parser = SimpleJsonOutputParser()
 
 
                 chain_with_sources = {
@@ -333,7 +353,8 @@ def generate_response(prompt: str,llm_string: str) :
                 } | RunnablePassthrough().assign(
                     response=(
                         RunnableLambda(build_prompt_markdown)
-                        | llm | json_parser
+                        | llm 
+                        | StrOutputParser()
                     )
                 )
                 MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
@@ -355,12 +376,11 @@ def generate_response(prompt: str,llm_string: str) :
                 print("dossier_session_id :", dossier_session_id)
 
                 answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
-                print("Answer is ", answer)
                 
                 
                 return answer["response"]
+                
             
-                     
     except Exception as e:
         st.error(f"An error occurred while generating the response: {e}")
 
