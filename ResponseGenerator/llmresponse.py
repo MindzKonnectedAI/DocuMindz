@@ -204,8 +204,9 @@ def generations_to_string(generations: Optional[Sequence[Generation]]) -> str:
 
 def generate_response(prompt: str,llm_string: str) :
     try:
-        print("st.session_state.Outout_Type",st.session_state.Output_Type)
+        
         if st.session_state.Output_Type  =="String":
+            print("st.session_state.Outout_Type",st.session_state.Output_Type)
             mongo_cache = get_mongo_cache()
             lookupResponse = mongo_cache.lookup(prompt,llm_string)
             if lookupResponse:
@@ -343,7 +344,6 @@ def generate_response(prompt: str,llm_string: str) :
                     llm, compression_retriever, contextualize_q_prompt
                 )
 
-                json_parser = SimpleJsonOutputParser()
 
 
                 chain_with_sources = {
@@ -353,7 +353,8 @@ def generate_response(prompt: str,llm_string: str) :
                 } | RunnablePassthrough().assign(
                     response=(
                         RunnableLambda(build_prompt_markdown)
-                        | llm | json_parser
+                        | llm 
+                        | StrOutputParser()
                     )
                 )
                 MONGO_DB_CONN_STR = os.getenv("MONGO_DB_CONN_STR")
@@ -375,7 +376,6 @@ def generate_response(prompt: str,llm_string: str) :
                 print("dossier_session_id :", dossier_session_id)
 
                 answer = with_message_history.invoke({"input":prompt},{"configurable": {"session_id":dossier_session_id }},)
-                print("Answer is ", answer)
                 
                 
                 return answer["response"]
