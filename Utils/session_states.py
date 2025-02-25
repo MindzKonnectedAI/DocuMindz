@@ -29,7 +29,7 @@ def initialize_session_states():
 
     # Initialize chunking_strategy if not in session state
     if "chunking_strategy" not in st.session_state:
-        st.session_state.chunking_strategy = "Semantic"
+        st.session_state.chunking_strategy = "Recursive"
         
         
     if "Output_Type" not in  st.session_state:

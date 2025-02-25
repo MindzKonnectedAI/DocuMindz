@@ -253,18 +253,38 @@ def generate_response(prompt: str,llm_string: str) :
                 def reRanker():
                     vectorStore = getVectorStore()
                         
-                    retriever = MultiVectorRetriever(
-                        vectorstore=vectorStore,
-                        docstore=get_mongo_docstore(st.session_state.index_name),
-                        id_key="doc_id",
-                    )
+                    if need_image is True:
+                        retriever = MultiVectorRetriever(
+                            vectorstore=vectorStore,
+                            docstore=get_mongo_docstore(st.session_state.index_name),
+                            id_key="doc_id"
+                        )
+                        compression_retriever = ContextualCompressionRetriever(
+                            base_compressor=cohere_reranker,
+                            base_retriever=retriever,
+                        )
 
-                    compression_retriever = ContextualCompressionRetriever(
-                        base_compressor=cohere_reranker,
-                        base_retriever=retriever,
-                    )
+                        return compression_retriever
 
-                    return compression_retriever
+                    else:
+                        retriever = MultiVectorRetriever(
+                            vectorstore=vectorStore,
+                            docstore=get_mongo_docstore(st.session_state.index_name),
+                            id_key="doc_id",
+                            search_kwargs={
+                                "filter":{
+                                    "document_type":"text"
+                                }
+                            }
+                        )
+
+                        compression_retriever = ContextualCompressionRetriever(
+                            base_compressor=cohere_reranker,
+                            base_retriever=retriever,
+                        )
+
+                        return compression_retriever
+
 
                 compression_retriever = reRanker()
 
@@ -323,20 +343,39 @@ def generate_response(prompt: str,llm_string: str) :
                 contextualize_q_prompt = hub.pull("langchain-ai/chat-langchain-rephrase")
                 
                 def reRanker():
-                    vectoreStore = getVectorStore()
-                    
-                    retriever = MultiVectorRetriever(
-                        vectorstore=vectoreStore,
-                        docstore=get_mongo_docstore(st.session_state.index_name),
+                    vectorStore = getVectorStore()
                         
-                        id_key ="doc_id",
+                    if need_image is True:
+                        retriever = MultiVectorRetriever(
+                            vectorstore=vectorStore,
+                            docstore=get_mongo_docstore(st.session_state.index_name),
+                            id_key="doc_id"
                         )
-                    compression_retriever = ContextualCompressionRetriever(
-                        base_compressor=cohere_reranker,
-                        base_retriever=retriever,
-                    )
-                    
-                    return compression_retriever
+                        compression_retriever = ContextualCompressionRetriever(
+                            base_compressor=cohere_reranker,
+                            base_retriever=retriever,
+                        )
+
+                        return compression_retriever
+
+                    else:
+                        retriever = MultiVectorRetriever(
+                            vectorstore=vectorStore,
+                            docstore=get_mongo_docstore(st.session_state.index_name),
+                            id_key="doc_id",
+                            search_kwargs={
+                                "filter":{
+                                    "document_type":"text"
+                                }
+                            }
+                        )
+
+                        compression_retriever = ContextualCompressionRetriever(
+                            base_compressor=cohere_reranker,
+                            base_retriever=retriever,
+                        )
+
+                        return compression_retriever
                 
                 compression_retriever = reRanker()
 

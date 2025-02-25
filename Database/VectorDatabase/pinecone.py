@@ -163,18 +163,21 @@ def create_vector_database(user_folder, file_paths,selected_files):
                 
                 # The storage layer for the parent documents
             id_key = "doc_id"
-                    
+            document_type = "document_type"
+
                 # The retriever (empty to start)
             retriever = MultiVectorRetriever(
                 vectorstore=vectorstore,
                 docstore=get_mongo_docstore(st.session_state.index_name),
                 id_key="doc_id",
                 )
+            
             if text_summaries:
                     # Add texts
                 doc_ids = [str(uuid.uuid4()) for _ in docs]
+                
                 summary_texts = [
-                     Document(page_content=summary, metadata={id_key: doc_ids[i]}) for i, summary in enumerate(text_summaries)
+                     Document(page_content=summary, metadata={id_key: doc_ids[i],document_type:"text"}) for i, summary in enumerate(text_summaries)
                 ]
                 retriever.vectorstore.add_documents(summary_texts)
                 retriever.docstore.mset(list(zip(doc_ids, docs)))
@@ -184,7 +187,7 @@ def create_vector_database(user_folder, file_paths,selected_files):
                     # Add image summaries
                     img_ids = [str(uuid.uuid4()) for _ in final_array]
                     summary_img = [
-                        Document(page_content=summary, metadata={id_key: img_ids[i]}) for i, summary in enumerate(image_summaries)
+                        Document(page_content=summary, metadata={id_key: img_ids[i],document_type:"image"}) for i, summary in enumerate(image_summaries)
                     ]
                     retriever.vectorstore.add_documents(summary_img)
                     retriever.docstore.mset(list(zip(img_ids, final_array)))  
